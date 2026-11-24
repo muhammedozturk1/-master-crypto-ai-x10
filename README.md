@@ -17,8 +17,8 @@ Varsayılan mod **PAPER** (Bybit demo hesabı). Canlı mod iki ayrı açık onay
 | 5 | Risk ve sermaye | Tamamlandı |
 | 6 | Emir ve pozisyon yönetimi | Tamamlandı |
 | 7 | Kâr koruma kilidi | Tamamlandı |
-| 8 | Backtest ve paper trading | Sırada |
-| 9 | Panel ve Telegram | Bekliyor |
+| 8 | Backtest ve paper trading | Tamamlandı |
+| 9 | Panel ve Telegram | Sırada |
 | 10 | Testler ve güvenlik incelemesi | Bekliyor |
 | 11 | Canlıya hazırlık | Bekliyor |
 
@@ -175,6 +175,27 @@ işlemde değiştirilir; hata olursa borsadaki eski stop korunur ve durum "hata 
 Her değişiklik kaydedilir. Tablo ve katsayılar başlangıç değeridir, Aşama 8'de backtest ile
 doğrulanacak.
 
+## Backtest ve performans (Aşama 8)
+
+Gerçek Bybit geçmiş mumlarıyla (sayfalı çekim) çok sembollü, zaman hizalı simülasyon.
+Gelecek verisi sızıntısı yok: sinyal kapanmış mumla, giriş sonraki mumun açılışında; üst zaman
+dilimi yalnız kapanmış mumlardan; kâr kilidi stopu bir sonraki mumdan geçerli. Komisyon, yarım
+spread ve kayma her iki yönde. Aynı mumda stop ve hedef → önce stop; boşlukta açılış fiyatı.
+Bir testte veri kesilince kesimden önceki işlemlerin değişmediği doğrulanır.
+
+- **strateji modu:** her sinyal bağımsız işlem, sabit 1 USD risk → strateji ve bot karşılaştırması.
+- **sistem modu:** ana robot (75+) + BOT07 + 200 USD bileşik kasa.
+- Metrikler (19.3): net kâr, getiri, profit factor, kazanma oranı, ortalama kazanç/kayıp,
+  beklenen değer (USD ve R), Sharpe, Sortino, azami düşüş, toparlanma faktörü, komisyon, süre,
+  kâr kilidi verimliliği; strateji/bot/sembol kırılımı; %70/%30 örnek içi/dışı; 4 pencereli
+  walk-forward; 500 turlu Monte Carlo düşüş dağılımı; kâr kilidi açık/kapalı karşılaştırması.
+- Bot ağırlık önerisi (en az 30 işlem; yoksa 1,0) yalnız onayla uygulanır.
+- Dahil değil: BOT06, BOT05, BOT04 (geçmiş veri yok), emir defteri derinliği, kısmi gerçekleşme.
+
+Sistem hiç backtest çalıştırmamışsa açılıştan 2 dakika sonra bir doğrulama backtest'i
+başlatır. Paper/canlı kapanan işlemler `/performance`'ta; scalping 20 işlemde negatif beklenen
+değerdeyse otomatik pasife alınır.
+
 ## Seçilen çalışma biçimi
 
 - Şartnamedeki 10 bot ve risk kuralları.
@@ -239,6 +260,10 @@ Bybit API anahtarına **para çekme yetkisi vermeyin**.
 | `GET /positions/{id}/protection` | Kâr kilidi ve stop değişiklik geçmişi |
 | `GET /orders` | Emir kayıtları |
 | `POST /positions/{id}/close` | Elle kapatma, `confirm: true` ve token ister |
+| `POST /backtest` | Backtest başlat (token): timeframe, days, symbols, mode, compare_profit_lock |
+| `GET /backtest`, `GET /backtest/{id}` | Backtest listesi ve tam rapor |
+| `POST /backtest/{id}/apply-weights` | Önerilen bot ağırlıklarını onayla uygula (token) |
+| `GET /performance` | Paper/canlı işlem performansı |
 | `GET /master` | Ana robot özeti: son karar, 24 saatlik dağılım, veto ve bot ağırlıkları |
 
 Yazma uçları `X-Dashboard-Token` başlığı ister.

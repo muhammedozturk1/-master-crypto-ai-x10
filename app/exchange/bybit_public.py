@@ -199,3 +199,23 @@ class BybitPublic:
             "category": self.category, "symbol": symbol, "limit": limit})
         rows = [(int(r["time"]), r["side"], _d(r["price"]), _d(r["size"])) for r in res.get("list", [])]
         return sorted(rows, key=lambda x: x[0])
+
+    async def klines_range(self, symbol: str, interval: str, start_ms: int, end_ms: int) -> list[Candle]:
+        """[start_ms, end_ms] aralığındaki tüm mumlar, sayfalı (her istekte en fazla 1000), eskiden yeniye."""
+        step = INTERVAL_MINUTES[interval] * 60_000
+        out: dict[int, Candle] = {}
+        end = end_ms
+        for _ in range(500):  # güvenlik sınırı
+            res = await self._get("/v5/market/kline", {"category": self.category, "symbol": symbol,
+                                                       "interval": interval, "start": start_ms, "end": end, "limit": 1000})
+            rows = res.get("list", [])
+            if not rows:
+                break
+            for r in rows:
+                c = Candle(int(r[0]), _d(r[1]), _d(r[2]), _d(r[3]), _d(r[4]), _d(r[5]), _d(r[6]), interval)
+                out[c.start_ms] = c
+            oldest = min(int(r[0]) for r in rows)
+            if oldest <= start_ms or len(rows) < 1000:
+                break
+            end = oldest - step
+        return [out[k] for k in sorted(out) if start_ms <= k <= end_ms]

@@ -12,6 +12,8 @@ from fastapi import FastAPI
 from app.api.market import router as market_router
 from app.api.routes import router
 from app.api.signals import router as signals_router
+from app.api.backtest import router as backtest_router
+from app.engines.performance import learning_check
 from app.config import get_settings
 from app.database.session import configure, init_db
 from app.engines.arbitrage_service import ArbitrageService
@@ -56,9 +58,30 @@ async def equity_loop(settings, every_sec: int = 300) -> None:
         try:
             with session_scope() as s:
                 record_snapshot(s, account_state(s, settings.risk.starting_capital_usd, settings.mode.value))
+                learning_check(s, settings.mode.value)
         except Exception:  # noqa: BLE001
             log.exception("Kasa anlık görüntüsü alınamadı")
         await asyncio.sleep(every_sec)
+
+
+async def first_backtest(app: FastAPI, settings, delay_sec: int = 120) -> None:
+    """Hiç backtest yoksa bir kez doğrulama backtest'i başlatır (15m, 30 gün, en likit 5 parite)."""
+    from app.backtesting.service import DEFAULT_BOTS, run_job
+    from app.database.models import BacktestRun
+    from sqlalchemy import select
+    await asyncio.sleep(delay_sec)
+    symbols = [c["symbol"] for c in latest_candidates(5)]
+    with session_scope() as s:
+        if s.scalars(select(BacktestRun.id).limit(1)).first() or not symbols:
+            return
+        req = {"timeframe": "15m", "days": 30, "symbols": symbols, "mode": "strateji",
+               "compare_profit_lock": True, "bots": list(DEFAULT_BOTS["15m"]), "auto": True}
+        run = BacktestRun(params=req)
+        s.add(run)
+        s.flush()
+        rid = run.id
+    log.info("İlk doğrulama backtest'i başlatıldı #%s: %s", rid, symbols)
+    await run_job(rid, req, app.state.market, settings)
 
 
 @asynccontextmanager
@@ -105,6 +128,8 @@ async def lifespan(app: FastAPI):
         tasks.append(asyncio.create_task(equity_loop(settings)))
     if app.state.monitor:
         tasks.append(asyncio.create_task(app.state.monitor.loop()))
+    if settings.runner_enabled:
+        tasks.append(asyncio.create_task(first_backtest(app, settings)))
     log.info("Başlatıldı: mod=%s borsa=%s demo=%s tarayıcı=%s bot_döngüsü=%s takvim=%s arbitraj=%s yürütme=%s",
              settings.mode.value, settings.exchange, settings.bybit_demo, settings.scanner_enabled,
              settings.runner_enabled, settings.calendar_enabled, settings.arbitrage_enabled,
@@ -129,3 +154,4 @@ app = FastAPI(title="MASTER CRYPTO AI X10", version="0.4.0", lifespan=lifespan)
 app.include_router(router)
 app.include_router(market_router)
 app.include_router(signals_router)
+app.include_router(backtest_router)

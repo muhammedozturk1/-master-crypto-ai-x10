@@ -11,9 +11,10 @@ from app.exchange.bybit_public import BybitPublic
 DAY = 86_400_000
 
 
-def make_klines(n: int, interval_min: int = 15, include_forming: bool = True, base: float = 60000.0) -> list[list[str]]:
+def make_klines(n: int, interval_min: int = 15, include_forming: bool = True, base: float = 60000.0,
+                end_ms: int | None = None) -> list[list[str]]:
     step = interval_min * 60_000
-    now = int(time.time() * 1000)
+    now = int(time.time() * 1000) if end_ms is None else end_ms
     forming_start = now - (now % step)
     last_start = forming_start if include_forming else forming_start - step
     rows = []
@@ -65,7 +66,10 @@ class FakeBybit:
             if self.kline_rows:
                 rows = self.kline_rows(q["symbol"], q["interval"], int(q["limit"]))
             if rows is None:
-                rows = make_klines(int(q["limit"]), int(q["interval"]))
+                end = int(q["end"]) if "end" in q else None
+                rows = make_klines(int(q["limit"]), int(q["interval"]), end_ms=end)
+                if "start" in q:
+                    rows = [r for r in rows if int(r[0]) >= int(q["start"])]
             return httpx.Response(200, json={"retCode": 0, "result": {"list": rows}})
         tickers, instruments = tickers_payload(now)
         if path == "/v5/market/tickers":
