@@ -150,7 +150,7 @@ class ExecutionService:
                            side="LONG" if long else "SHORT", strategy_id=(plan.get("strategy") or "")[:64],
                            qty=fill.filled_qty, leverage=self.s.risk.leverage, entry_price=fill.avg_price,
                            initial_stop=stop, current_stop=stop, take_profit=tp, entry_fee=fill.fee,
-                           last_price=fill.avg_price, unrealized_net_pnl=-fill.fee,
+                           last_price=fill.avg_price, high_water=fill.avg_price, unrealized_net_pnl=-fill.fee,
                            risk_usd=fill.filled_qty * (abs(fill.avg_price - stop) + cost),
                            margin_usd=fill.filled_qty * fill.avg_price / self.s.risk.leverage)
             s.add(pos)
@@ -249,6 +249,7 @@ class ExecutionService:
             p.realized_net_pnl = g - p.entry_fee - exit_fee
             p.last_price, p.unrealized_net_pnl = exit_price, ZERO
             p.status, p.closed_at = "KAPALI", datetime.now(timezone.utc)
+            p.lock_state = 5  # CLOSED
             s.add(AuditLog(event="pozisyon_kapandi", actor="BOT09", detail={
                 "position_id": position_id, "symbol": p.symbol, "reason": reason, "exit": str(exit_price),
                 "net_pnl": str(p.realized_net_pnl), "exchange_closed_pnl": str(exchange_pnl) if exchange_pnl is not None else None}))

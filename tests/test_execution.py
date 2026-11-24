@@ -244,3 +244,59 @@ def test_runner_executes_approved_decision_and_records_result(settings):
     with dbs.session_scope() as s:
         assert s.get(Decision, did).contributions["yurutme"]["status"] == "DOLDU"
         assert s.query(Position).filter_by(decision_id=did).one().symbol == "XUSDT"
+
+
+# --- Aşama 7: kâr kilidinin izleyici üzerinden uygulanması -------------------------
+
+def test_profit_lock_moves_exchange_stop_and_records_change(settings):
+    from app.database.models import ProtectionChange
+    fake = FakeBybitPrivate(fill_price="100")
+    ex = bybit_exec(settings, fake)
+    pid = run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))["position_id"]
+    fake.positions["BTCUSDT"]["markPrice"] = "103.2"          # net ≈ %3 → kilit %2
+    run(PositionMonitor(ex).cycle())
+    stops = [p for path, p in fake.calls if path == "/v5/position/trading-stop"]
+    assert stops and D(stops[-1]["stopLoss"]) > D("101.5")
+    with dbs.session_scope() as s:
+        p = s.get(Position, pid)
+        assert p.current_stop == D(stops[-1]["stopLoss"]) and p.lock_state == 3
+        ch = s.query(ProtectionChange).one()
+        assert ch.old_stop == D("98") and ch.new_stop == p.current_stop
+    # fiyat geri gelir → stop geri çekilmez
+    fake.positions["BTCUSDT"]["markPrice"] = "102.2"
+    run(PositionMonitor(ex).cycle())
+    with dbs.session_scope() as s:
+        assert s.get(Position, pid).current_stop == D(stops[-1]["stopLoss"])
+        assert s.query(ProtectionChange).count() == 1
+
+
+def test_profit_lock_exchange_failure_keeps_old_stop(settings):
+    fake = FakeBybitPrivate(fill_price="100")
+    ex = bybit_exec(settings, fake)
+    pid = run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))["position_id"]
+    fake.trading_stop_fails = True
+    fake.positions["BTCUSDT"]["markPrice"] = "103.2"
+    run(PositionMonitor(ex).cycle())
+    with dbs.session_scope() as s:
+        p = s.get(Position, pid)
+        assert p.current_stop == D("98") and p.lock_state == 6   # ERROR_RECOVERY, borsadaki stop korunur
+        assert s.query(AuditLog).filter_by(event="kar_kilidi_hatasi").count() == 1
+
+
+def test_sim_profit_locked_then_exit_with_profit(settings):
+    import time
+    state = {"rows": None}
+    ex = sim_exec(settings, lambda s, i, n: state["rows"] or flat_rows("100", n))
+    pid = run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))["position_id"]   # giriş 100.1
+    mon = PositionMonitor(ex)
+    t = int(time.time() * 1000) + 60_000
+    state["rows"] = [[str(t), "103", "103.5", "102.9", "103.4", "1", "0"]]   # net ≈ %3
+    run(mon.cycle())
+    with dbs.session_scope() as s:
+        locked = s.get(Position, pid).current_stop
+    assert locked > D("101")
+    state["rows"] = [[str(t + 60_000), "103", "103.1", "100.5", "100.8", "1", "0"]]  # sert geri dönüş
+    run(mon.cycle())
+    with dbs.session_scope() as s:
+        p = s.get(Position, pid)
+        assert p.status == "KAPALI" and p.realized_net_pnl > 0 and p.last_price == locked and p.lock_state == 5

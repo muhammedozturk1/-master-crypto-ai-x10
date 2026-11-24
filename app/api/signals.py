@@ -235,3 +235,22 @@ def orders(limit: int = Query(50, ge=1, le=500), session: Session = Depends(get_
              "avg_fill_price": str(o.avg_fill_price) if o.avg_fill_price is not None else None,
              "status": o.status, "created_at": o.created_at.isoformat()}
             for o in session.scalars(select(Order).order_by(Order.id.desc()).limit(limit))]
+
+
+@router.get("/positions/{position_id}/protection")
+def protection_history(position_id: int, session: Session = Depends(get_session)) -> dict:
+    """Kâr kilidi ve stop değişikliklerinin kaydı (şartname 14.9)."""
+    from app.database.models import Position, ProtectionChange
+    from app.engines.profit_lock import STATE_NAMES
+    p = session.get(Position, position_id)
+    if p is None:
+        return {"error": "pozisyon yok"}
+    rows = session.scalars(select(ProtectionChange).where(ProtectionChange.position_id == position_id)
+                           .order_by(ProtectionChange.id))
+    return {
+        "position_id": p.id, "symbol": p.symbol, "side": p.side, "state": STATE_NAMES.get(p.lock_state, p.lock_state),
+        "peak_net_pnl_pct": str(p.peak_net_pnl_pct), "initial_stop": str(p.initial_stop), "current_stop": str(p.current_stop),
+        "changes": [{"at": r.created_at.isoformat(), "old_stop": str(r.old_stop), "new_stop": str(r.new_stop),
+                     "state": STATE_NAMES.get(r.lock_state, r.lock_state), "reason": r.reason} for r in rows],
+        "note": "Gerçekleşmemiş kâr garanti değildir; kayma ve fiyat boşlukları korunan tutarı değiştirebilir.",
+    }

@@ -47,6 +47,7 @@ ADDED_COLUMNS = [
     ("positions", "risk_usd", "NUMERIC(20, 8)"),
     ("positions", "margin_usd", "NUMERIC(20, 8)"),
     ("positions", "venue", "VARCHAR(12)"),
+    ("positions", "high_water", "NUMERIC(28, 10)"),
 ]
 UNIQUE_INDEXES = [("uq_signals_dedup", "signals", "dedup_key"), ("uq_decisions_key", "decisions", "decision_key")]
 

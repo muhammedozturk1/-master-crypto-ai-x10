@@ -47,6 +47,7 @@ def build_executor(settings, market):
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("x10")
+logging.getLogger("httpx").setLevel(logging.WARNING)  # her HTTP isteğini loglama
 
 
 async def equity_loop(settings, every_sec: int = 300) -> None:

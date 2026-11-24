@@ -95,6 +95,7 @@ class Position(Base):
     realized_net_pnl: Mapped[Decimal | None] = mapped_column(MONEY)
     # Pozisyon izleyicinin güncellediği anlık değerler ve açılıştaki risk/teminat
     last_price: Mapped[Decimal | None] = mapped_column(PRICE)
+    high_water: Mapped[Decimal | None] = mapped_column(PRICE)  # long: en yüksek, short: en düşük fiyat
     unrealized_net_pnl: Mapped[Decimal | None] = mapped_column(MONEY)
     risk_usd: Mapped[Decimal | None] = mapped_column(MONEY)
     margin_usd: Mapped[Decimal | None] = mapped_column(MONEY)

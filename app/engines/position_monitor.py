@@ -19,8 +19,12 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
+import time
+
 from app.bots.bot09_execution import ExecutionService, audit, safe_mode
-from app.database.models import Position
+from app.database.models import Position, ProtectionChange, ScanSnapshot
+from app.engines import profit_lock as PL
+from app.indicators import core as I
 from app.database.session import session_scope
 from app.exchange.bybit_public import BybitError
 from app.execution.brokers import SimBroker
@@ -36,6 +40,8 @@ class PositionMonitor:
         self.every = every_sec
         self.last_checked: dict[int, int] = {}
         self.missing: dict[int, int] = {}
+        self._atr: dict[str, tuple[float, Decimal | None]] = {}
+        self._ticks: dict[str, Decimal] = {}
 
     def _open(self) -> list[dict]:
         with session_scope() as s:
@@ -54,8 +60,70 @@ class PositionMonitor:
             p.last_price = price
             p.unrealized_net_pnl = (price - p.entry_price) * p.qty * d - p.entry_fee - est_exit_fee
 
+    def _load_ticks(self) -> None:
+        with session_scope() as s:
+            snap = s.scalars(select(ScanSnapshot).where(ScanSnapshot.ok.is_(True)).order_by(ScanSnapshot.id.desc()).limit(1)).first()
+            for c in (snap.result.get("candidates", []) if snap else []):
+                if c.get("tick_size") not in (None, "", "0"):
+                    self._ticks[c["symbol"]] = Decimal(c["tick_size"])
+
+    async def atr(self, symbol: str) -> Decimal | None:
+        """15 dakikalık ATR(14), 5 dakika önbellekli."""
+        hit = self._atr.get(symbol)
+        if hit and time.monotonic() - hit[0] < 300:
+            return hit[1]
+        cs = await self.x.b.pub.klines(symbol, "15", 40) if hasattr(self.x.b, "pub") else []
+        H, L, C = [float(c.high) for c in cs], [float(c.low) for c in cs], [float(c.close) for c in cs]
+        a = I.atr(H, L, C, 14)
+        val = Decimal(str(a[-2])) if len(a) > 1 and a[-2] else None  # son kapanmış mum
+        self._atr[symbol] = (time.monotonic(), val)
+        return val
+
+    async def protect(self, pid: int, price: Decimal) -> str | None:
+        """Kâr koruma motoru: zirve, kilit ve stop güncellemesi (şartname 14)."""
+        with session_scope() as s:
+            p = s.get(Position, pid)
+            if p is None or p.status != "ACIK":
+                return None
+            view = PL.PositionView(p.side == "LONG", p.qty, p.entry_price, p.entry_fee, p.initial_stop,
+                                   p.current_stop, p.peak_net_pnl_pct or Decimal(0), p.high_water or p.entry_price,
+                                   p.lock_state or 0, p.strategy_id, self.x.fee_pct, self._ticks.get(p.symbol))
+            symbol, tp = p.symbol, p.take_profit
+        try:
+            atr = await self.atr(symbol)
+        except Exception:  # noqa: BLE001 – ATR yoksa trailing bileşeni devre dışı kalır
+            atr = None
+        d = PL.evaluate(view, price, atr)
+        with session_scope() as s:
+            p = s.get(Position, pid)
+            p.peak_net_pnl_pct, p.high_water = d.peak_net_pct, d.high_water
+            p.lock_state = d.state
+        if d.exit_now:
+            audit("kar_kilidi_cikis", {"position_id": pid, "reason": d.reason, "components": d.components})
+            await self.x.close_position(pid, "kâr kilidi: " + d.reason)
+            return "exit"
+        if d.new_stop is None:
+            return None
+        if not isinstance(self.b, SimBroker):
+            try:  # Bybit trading-stop mevcut stopu tek işlemde değiştirir: korumasız an olmaz
+                await self.b.set_protection(symbol, d.new_stop, tp)
+            except Exception as exc:  # noqa: BLE001
+                with session_scope() as s:
+                    s.get(Position, pid).lock_state = PL.ERROR
+                audit("kar_kilidi_hatasi", {"position_id": pid, "error": str(exc)[:300], "target_stop": str(d.new_stop)})
+                return "error"
+        with session_scope() as s:
+            p = s.get(Position, pid)
+            old = p.current_stop
+            p.current_stop = d.new_stop
+            s.add(ProtectionChange(position_id=pid, old_stop=old, new_stop=d.new_stop, lock_state=d.state,
+                                   reason=(d.reason + f"; bileşenler {d.components}")[:2000]))
+        log.info("Stop güncellendi #%s %s: %s → %s (%s)", pid, symbol, view.current_stop, d.new_stop, PL.STATE_NAMES[d.state])
+        return "moved"
+
     async def cycle(self) -> dict:
         rep = {"checked": 0, "closed": 0, "errors": 0}
+        self._load_ticks()
         positions = self._open()
         for p in positions:
             rep["checked"] += 1
@@ -95,6 +163,9 @@ class PositionMonitor:
         if candles:
             self.last_checked[p["id"]] = candles[-1].start_ms
             self._mark(p["id"], candles[-1].close)
+            if p["status"] == "ACIK":
+                r = await self.protect(p["id"], candles[-1].close)
+                return r == "exit"
         return False
 
     async def _exchange(self, p: dict) -> bool:
@@ -105,6 +176,8 @@ class PositionMonitor:
             if ep.stop_loss is None:  # borsa tarafındaki koruma kaybolmuş
                 await self.b.set_protection(p["symbol"], p["stop"], p["tp"])
                 audit("stop_yeniden_kuruldu", {"position_id": p["id"], "symbol": p["symbol"]})
+            if p["status"] == "ACIK":
+                await self.protect(p["id"], ep.mark_price)
             return False
         # Borsada pozisyon yok: stop/hedef ile kapanmış
         cr = await self.b.closed_result(p["symbol"], p["long"], p["entry"], p["qty"], p["opened_ms"])

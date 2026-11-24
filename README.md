@@ -16,8 +16,8 @@ Varsayılan mod **PAPER** (Bybit demo hesabı). Canlı mod iki ayrı açık onay
 | 4 | Ana robot karar motoru | Tamamlandı |
 | 5 | Risk ve sermaye | Tamamlandı |
 | 6 | Emir ve pozisyon yönetimi | Tamamlandı |
-| 7 | Kâr koruma kilidi | Sırada |
-| 8 | Backtest ve paper trading | Bekliyor |
+| 7 | Kâr koruma kilidi | Tamamlandı |
+| 8 | Backtest ve paper trading | Sırada |
 | 9 | Panel ve Telegram | Bekliyor |
 | 10 | Testler ve güvenlik incelemesi | Bekliyor |
 | 11 | Canlıya hazırlık | Bekliyor |
@@ -152,6 +152,29 @@ kendi hesabımızla (çıkış−giriş farkı − açılış ve kapanış komis
 `closedPnl` değeri karşılaştırma için saklanır. Simülasyonda stop ve hedef 1 dakikalık mum
 uçlarıyla tetiklenir; aynı mumda ikisi de görülürse önce stop, boşluklu açılışta açılış fiyatı.
 
+## Kâr koruma kilidi (Aşama 7)
+
+Her açık pozisyon için ayrı çalışır (kasa bazlı değil). Net kâr = brüt fiyat kazancı − giriş
+komisyonu − tahmini çıkış komisyonu, pozisyon tutarına oranla. Durum makinesi: 0 başlangıç
+stopu → 1 başabaş (zirve net ≥ %0,5) → 2 kademeli kilit (≥ %1) → 3 ATR trailing (≥ %2) → 4 güvenli
+çıkış → 5 kapandı → 6 hata kurtarma.
+
+| Zirve net | Korunan net |
+| --- | --- |
+| %0,5 | başabaş |
+| %1 / %1,5 / %2 | %0,5 / %0,8 / %1,2 |
+| %3 / %4 / %5 | %2 / %3 / %4 |
+| %7 / %10 | %5,6 / %8,5 |
+| %10 üstü | zirvenin %85'i |
+
+ATR trailing (15 dk ATR14): scalping 1,25, NR7 1,75, teknik 2,0, trend 2,5 katsayı. Yeni stop
+long için MAX(önceki, başlangıç, kilit, ATR), short için MIN; etkin olmayan bileşen dahil
+edilmez, stop asla geri çekilmez ve başlangıç stopu genişletilmez. Fiyat kilit seviyesini
+zaten aşmışsa geçersiz stop yerine pozisyon kapatılır. Bybit'te stop `trading-stop` ile tek
+işlemde değiştirilir; hata olursa borsadaki eski stop korunur ve durum "hata kurtarma" olur.
+Her değişiklik kaydedilir. Tablo ve katsayılar başlangıç değeridir, Aşama 8'de backtest ile
+doğrulanacak.
+
 ## Seçilen çalışma biçimi
 
 - Şartnamedeki 10 bot ve risk kuralları.
@@ -213,6 +236,7 @@ Bybit API anahtarına **para çekme yetkisi vermeyin**.
 | `GET /portfolio` | BOT08 kasa durumu |
 | `GET /risk` | BOT07 limitleri, kullanım ve yeni işlemi engelleyen nedenler |
 | `GET /positions` | Açık ve kapanmış pozisyonlar (`status=ACIK`) |
+| `GET /positions/{id}/protection` | Kâr kilidi ve stop değişiklik geçmişi |
 | `GET /orders` | Emir kayıtları |
 | `POST /positions/{id}/close` | Elle kapatma, `confirm: true` ve token ister |
 | `GET /master` | Ana robot özeti: son karar, 24 saatlik dağılım, veto ve bot ağırlıkları |
