@@ -206,3 +206,26 @@ def test_scalping_auto_passive_on_negative_expectancy(tmp_path):
     assert acts and "BOT03 pasife" in acts[0]
     with dbs.session_scope() as s:
         assert s.get(BotState, "BOT03").enabled is False
+
+
+def test_stale_running_backtest_marked_on_startup(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.config import Settings, get_settings
+    from app.database import session as dbs
+    from app.database.models import BacktestRun
+    from app.main import app
+    from tests.fake_bybit import FakeBybit
+    url = f"sqlite:///{tmp_path}/s.db"
+    dbs.configure(url)
+    dbs.init_db()
+    with dbs.session_scope() as s:
+        s.add(BacktestRun(id=7, status="CALISIYOR", params={"timeframe": "15m", "mode": "sistem"}))
+    settings = Settings(_env_file=None, database_url=url, scanner_enabled=False, runner_enabled=False,
+                        calendar_enabled=False, arbitrage_enabled=False, execution_enabled=False)
+    monkeypatch.setattr("app.main.get_settings", lambda: settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.state.market = FakeBybit().client()
+    with TestClient(app) as c:
+        r = c.get("/backtest/7").json()
+        assert r["status"] == "HATA" and "yeniden başladı" in r["error"]
+    app.dependency_overrides.clear()

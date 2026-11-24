@@ -89,7 +89,7 @@ async def backtest_suite(app: FastAPI, settings, delay_sec: int = 120) -> None:
         symbols = [c["symbol"] for c in latest_candidates(5)]
         with session_scope() as s:
             done = {(r.params.get("timeframe"), r.params.get("mode")) for r in s.scalars(select(BacktestRun))
-                    if r.status in ("BITTI", "CALISIYOR")}
+                    if r.status == "BITTI"}
             if (tf, mode) in done or not symbols:
                 continue
             req = {"timeframe": tf, "days": 30 if tf == "15m" else 90, "symbols": symbols, "mode": mode,
@@ -107,6 +107,12 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     configure(settings.sqlalchemy_url)
     init_db()
+    with session_scope() as s:  # yeniden başlatmada yarım kalan backtest'ler sonsuza dek "çalışıyor" kalmasın
+        from datetime import datetime, timezone
+        from app.database.models import BacktestRun
+        from sqlalchemy import select
+        for r in s.scalars(select(BacktestRun).where(BacktestRun.status == "CALISIYOR")):
+            r.status, r.error, r.finished_at = "HATA", "sunucu yeniden başladığı için kesildi", datetime.now(timezone.utc)
     app.state.market = getattr(app.state, "market", None) or BybitPublic(category=settings.market_type.value)
     app.state.calendar = CalendarService() if settings.calendar_enabled else None
     app.state.arbitrage = ArbitrageService(
