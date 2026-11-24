@@ -13,7 +13,7 @@ def client(tmp_path, monkeypatch):
     get_settings.cache_clear()
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     app.dependency_overrides[get_settings] = lambda: settings
-    with TestClient(app) as c:
+    with TestClient(app, headers={"X-Dashboard-Token": TOKEN}) as c:
         yield c
     app.dependency_overrides.clear()
 
@@ -34,7 +34,7 @@ def test_ten_bots_registered(client):
 
 
 def test_write_requires_token(client):
-    assert client.patch("/bots/BOT03", json={"enabled": False}).status_code == 401
+    assert client.patch("/bots/BOT03", json={"enabled": False}, headers={"X-Dashboard-Token": "yanlis"}).status_code == 401
     r = client.patch("/bots/BOT03", json={"enabled": False}, headers={"X-Dashboard-Token": TOKEN})
     assert r.status_code == 200 and r.json()["enabled"] is False
 
@@ -73,3 +73,37 @@ def test_writes_disabled_without_token_config(tmp_path, monkeypatch):
 def test_config_hides_secrets(client):
     cfg = client.get("/config").json()
     assert "dashboard_token" not in cfg and "bybit_api_secret" not in cfg
+
+
+def test_reads_require_token_when_configured(client):
+    bad = {"X-Dashboard-Token": "yanlis"}
+    for path in ("/bots", "/portfolio", "/decisions", "/positions", "/config"):
+        assert client.get(path, headers=bad).status_code == 401, path
+    assert client.get("/health", headers=bad).status_code == 200      # sağlık kontrolü açık
+    assert client.get("/", headers=bad).status_code == 200             # panel sayfası açık
+
+
+def test_login_cookie_grants_access(client):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    c2 = TestClient(app, base_url="https://testserver")
+    assert c2.post("/login", json={"token": "yanlis"}).status_code == 401
+    assert c2.get("/bots").status_code == 401
+    assert c2.post("/login", json={"token": TOKEN}).status_code == 200
+    assert c2.get("/bots").status_code == 200
+    r = c2.patch("/bots/BOT03", json={"enabled": False})               # çerezle yazma da çalışır
+    assert r.status_code == 200
+    c2.post("/logout")
+    assert c2.get("/bots").status_code == 401
+
+
+def test_panel_page_and_all_panel_endpoints(client):
+    html = client.get("/").text
+    assert "MASTER CRYPTO AI X10" in html and "Content-Security-Policy" in client.get("/").headers
+    import re
+    paths = set(re.findall(r'api\("(/[a-z0-9/_?=]+)"\)', html))
+    assert {"/health", "/portfolio", "/risk", "/master", "/bots", "/decisions?limit=25", "/nr7", "/calendar",
+            "/performance", "/backtest", "/runner"} <= paths
+    for pth in paths:
+        r = client.get(pth)
+        assert r.status_code == 200, (pth, r.text[:200])

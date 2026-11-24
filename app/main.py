@@ -53,12 +53,23 @@ logging.getLogger("httpx").setLevel(logging.WARNING)  # her HTTP isteğini logla
 
 
 async def equity_loop(settings, every_sec: int = 300) -> None:
-    """BOT08: kasa anlık görüntüsü (zirve özkaynak ve drawdown takibi için)."""
+    """BOT08: kasa anlık görüntüsü (zirve özkaynak ve drawdown takibi için), öğrenme kuralları
+    ve UTC gün dönümünde günlük Telegram raporu."""
+    from datetime import datetime, timezone
+    from app.engines.performance import report
+    from app.notifications import telegram as tg
+    last_day = datetime.now(timezone.utc).date()
     while True:
         try:
             with session_scope() as s:
-                record_snapshot(s, account_state(s, settings.risk.starting_capital_usd, settings.mode.value))
+                st = account_state(s, settings.risk.starting_capital_usd, settings.mode.value)
+                record_snapshot(s, st)
                 learning_check(s, settings.mode.value)
+                today = datetime.now(timezone.utc).date()
+                if today != last_day and tg._active is not None:
+                    perf = report(s, settings.mode.value, float(settings.risk.starting_capital_usd))
+                    tg._active.push(tg.daily_report_text(st, perf["summary"]))
+                last_day = today
         except Exception:  # noqa: BLE001
             log.exception("Kasa anlık görüntüsü alınamadı")
         await asyncio.sleep(every_sec)
@@ -120,6 +131,10 @@ async def lifespan(app: FastAPI):
                 s.add(AuditLog(event="anahtar_dogrulanamadi", actor="BOT09", detail={"error": str(exc)[:300]}))
             await app.state.execution.b.p.close()
             app.state.execution = None
+    from app.notifications.telegram import TelegramNotifier, install
+    app.state.notifier = (TelegramNotifier(settings.telegram_bot_token, settings.telegram_chat_id)
+                          if settings.telegram_bot_token and settings.telegram_chat_id else None)
+    install(app.state.notifier)
     app.state.monitor = PositionMonitor(app.state.execution, settings.monitor_interval_sec) if app.state.execution else None
     app.state.runner = BotRunner(app.state.market, settings, providers, app.state.execution) if settings.runner_enabled else None
 
@@ -137,16 +152,25 @@ async def lifespan(app: FastAPI):
         tasks.append(asyncio.create_task(app.state.monitor.loop()))
     if settings.runner_enabled:
         tasks.append(asyncio.create_task(backtest_suite(app, settings)))
-    log.info("Başlatıldı: mod=%s borsa=%s demo=%s tarayıcı=%s bot_döngüsü=%s takvim=%s arbitraj=%s yürütme=%s",
+    if app.state.notifier:
+        tasks.append(asyncio.create_task(app.state.notifier.loop()))
+    with session_scope() as s:
+        from app.database.models import AuditLog
+        s.add(AuditLog(event="sistem_basladi", actor="system", detail={
+            "venue": app.state.execution.venue if app.state.execution else "kapalı", "reason": settings.mode.value}))
+    log.info("Başlatıldı: mod=%s borsa=%s demo=%s tarayıcı=%s bot_döngüsü=%s takvim=%s arbitraj=%s yürütme=%s telegram=%s",
              settings.mode.value, settings.exchange, settings.bybit_demo, settings.scanner_enabled,
              settings.runner_enabled, settings.calendar_enabled, settings.arbitrage_enabled,
-             app.state.execution.venue if app.state.execution else "kapalı")
+             app.state.execution.venue if app.state.execution else "kapalı", "açık" if app.state.notifier else "kapalı")
+    if not settings.dashboard_token:
+        log.warning("DASHBOARD_TOKEN ayarlı değil: okuma uçları herkese açık, yazma uçları kapalı")
     yield
     for t in tasks:
         t.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await t
-    for svc in (app.state.calendar, app.state.arbitrage):
+    install(None)
+    for svc in (app.state.calendar, app.state.arbitrage, app.state.notifier):
         if svc:
             await svc.close()
     await app.state.market.close()
@@ -157,7 +181,59 @@ async def lifespan(app: FastAPI):
     log.info("Durduruldu")
 
 
-app = FastAPI(title="MASTER CRYPTO AI X10", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="MASTER CRYPTO AI X10", version="0.5.0", lifespan=lifespan)
+
+PUBLIC_PATHS = {"/", "/panel", "/health", "/login", "/logout", "/openapi.json", "/favicon.ico"}
+
+
+@app.middleware("http")
+async def dashboard_auth(request, call_next):
+    """Şartname 25: panel kimlik doğrulaması. DASHBOARD_TOKEN ayarlıysa panel sayfası, /health,
+    giriş ve API belgesi dışındaki her uç anahtar ister (X-Dashboard-Token başlığı veya panel çerezi)."""
+    import hmac
+    from fastapi.responses import JSONResponse
+    from app.api.routes import TOKEN_COOKIE
+    token = get_settings().dashboard_token
+    path = request.url.path
+    if token and path not in PUBLIC_PATHS and not path.startswith("/docs"):
+        given = request.headers.get("x-dashboard-token") or request.cookies.get(TOKEN_COOKIE, "")
+        if not hmac.compare_digest(given, token):
+            return JSONResponse({"detail": "Erişim anahtarı gerekli: panelden giriş yapın"}, status_code=401)
+    return await call_next(request)
+
+
+@app.post("/login")
+async def login(body: dict):
+    import hmac
+    from fastapi import HTTPException
+    from fastapi.responses import JSONResponse
+    from app.api.routes import TOKEN_COOKIE
+    token = get_settings().dashboard_token
+    given = str(body.get("token", ""))
+    if not token or not hmac.compare_digest(given, token):
+        raise HTTPException(401, "Geçersiz erişim anahtarı")
+    r = JSONResponse({"ok": True})
+    r.set_cookie(TOKEN_COOKIE, given, max_age=7 * 86400, httponly=True, secure=True, samesite="strict")
+    return r
+
+
+@app.post("/logout")
+async def logout():
+    from fastapi.responses import JSONResponse
+    from app.api.routes import TOKEN_COOKIE
+    r = JSONResponse({"ok": True})
+    r.delete_cookie(TOKEN_COOKIE)
+    return r
+
+
+@app.get("/", include_in_schema=False)
+@app.get("/panel", include_in_schema=False)
+async def panel():
+    from pathlib import Path
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse((Path(__file__).parent / "web" / "panel.html").read_text(encoding="utf-8"),
+                        headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY",
+                                 "Content-Security-Policy": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self'"})
 app.include_router(router)
 app.include_router(market_router)
 app.include_router(signals_router)

@@ -131,6 +131,10 @@ class Settings(BaseSettings):
     # Panel yazma işlemleri için erişim anahtarı; boşsa yazma kapalıdır.
     dashboard_token: str = Field(default="", repr=False)
 
+    # Telegram bildirimleri (boşsa kapalı)
+    telegram_bot_token: str = Field(default="", repr=False)
+    telegram_chat_id: str = Field(default="", repr=False)
+
     # Haber vetosu (şartname 8.3): açıklamadan önce/sonra dakika
     news_blackout_before_min: int = 15
     news_blackout_after_min: int = 15
@@ -191,6 +195,7 @@ class Settings(BaseSettings):
             "market_type": self.market_type.value,
             "bybit_demo": self.bybit_demo,
             "api_key_configured": bool(self.bybit_api_key),
+            "telegram_configured": bool(self.telegram_bot_token and self.telegram_chat_id),
             "risk": {k: str(v) if isinstance(v, Decimal) else v for k, v in self.risk.model_dump().items()},
             "news_blackout_min": [self.news_blackout_before_min, self.news_blackout_after_min],
         }

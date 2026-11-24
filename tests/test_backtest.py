@@ -165,9 +165,9 @@ def test_backtest_api_end_to_end(tmp_path, monkeypatch):
     app.dependency_overrides[get_settings] = lambda: settings
     app.state.market = FakeBybit().client()
     h = {"X-Dashboard-Token": "tok"}
-    with TestClient(app) as c:
+    with TestClient(app, headers=h) as c:
         c.portal.call(scan_once, app.state.market, settings)
-        assert c.post("/backtest", json={"days": 3}).status_code == 401
+        assert c.post("/backtest", json={"days": 3}, headers={"X-Dashboard-Token": "x"}).status_code == 401
         r = c.post("/backtest", json={"days": 3, "symbols": ["BTCUSDT", "ETHUSDT"]}, headers=h).json()
         rid = r["id"]
         c.portal.call(lambda: app.state.backtest_task)

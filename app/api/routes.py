@@ -18,13 +18,17 @@ from app.database.session import get_session
 router = APIRouter()
 
 
+TOKEN_COOKIE = "x10_token"
+
+
 def require_admin(
-    x_dashboard_token: str = Header(default=""), settings: Settings = Depends(get_settings)
+    request: Request, x_dashboard_token: str = Header(default=""), settings: Settings = Depends(get_settings)
 ) -> None:
-    """Yazma işlemleri DASHBOARD_TOKEN ister; token ayarlı değilse yazma kapalıdır."""
+    """Yazma işlemleri DASHBOARD_TOKEN ister (başlık veya panel çerezi); ayarlı değilse yazma kapalıdır."""
     if not settings.dashboard_token:
         raise HTTPException(503, "Yazma işlemleri kapalı: DASHBOARD_TOKEN ayarlanmamış")
-    if not hmac.compare_digest(x_dashboard_token, settings.dashboard_token):
+    given = x_dashboard_token or request.cookies.get(TOKEN_COOKIE, "")
+    if not hmac.compare_digest(given, settings.dashboard_token):
         raise HTTPException(401, "Geçersiz erişim anahtarı")
 
 

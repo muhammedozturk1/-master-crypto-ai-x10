@@ -18,8 +18,8 @@ Varsayılan mod **PAPER** (Bybit demo hesabı). Canlı mod iki ayrı açık onay
 | 6 | Emir ve pozisyon yönetimi | Tamamlandı |
 | 7 | Kâr koruma kilidi | Tamamlandı |
 | 8 | Backtest ve paper trading | Tamamlandı |
-| 9 | Panel ve Telegram | Sırada |
-| 10 | Testler ve güvenlik incelemesi | Bekliyor |
+| 9 | Panel ve Telegram | Tamamlandı |
+| 10 | Testler ve güvenlik incelemesi | Sırada |
 | 11 | Canlıya hazırlık | Bekliyor |
 
 Strateji kodu yazılan botlar `/bots` ekranında `implemented: true` görünür. Sinyal botlarının
@@ -196,6 +196,23 @@ Sistem hiç backtest çalıştırmamışsa açılıştan 2 dakika sonra bir doğ
 başlatır. Paper/canlı kapanan işlemler `/performance`'ta; scalping 20 işlemde negatif beklenen
 değerdeyse otomatik pasife alınır.
 
+## Panel ve bildirimler (Aşama 9)
+
+**Panel:** servis adresinin kökü (`/`). Türkçe, karanlık temalı, mobil uyumlu, 10 saniyede bir
+yenilenir: kasa, risk kullanımı ve engeller, ana robot ve 24 saatlik karar dağılımı, pozisyonlar
+(kâr kilidi durumu, elle kapatma), kararlar ve gerekçeleri, botlar (aç/kapat), NR7 tarayıcı,
+ekonomik takvim, demo performansı, backtest başlatma ve ağırlık uygulama; acil durdurma ve
+yeniden başlatma.
+
+**Kimlik doğrulama:** `DASHBOARD_TOKEN` ayarlıysa panel sayfası, `/health`, giriş ve API belgesi
+dışındaki tüm uçlar anahtar ister (`X-Dashboard-Token` başlığı veya panel girişindeki çerez:
+HttpOnly, Secure, SameSite=Strict, 7 gün). Panel, borsa ve haber verisini HTML olarak işlemez.
+
+**Telegram:** `TELEGRAM_BOT_TOKEN` ve `TELEGRAM_CHAT_ID` Render Environment sayfasına
+girilirse açılır: sistem başlatma, işlem açılış/kapanış, kâr kilidi yükselmesi, kâr kilidi
+çıkışı, güvenli mod, risk durdurma, acil durdurma, emir hataları, scalping pasif, günlük rapor.
+Bildirim hatası işlemleri etkilemez.
+
 ## Seçilen çalışma biçimi
 
 - Şartnamedeki 10 bot ve risk kuralları.
@@ -239,6 +256,8 @@ Bybit API anahtarına **para çekme yetkisi vermeyin**.
 
 | Uç | Açıklama |
 | --- | --- |
+| `GET /` | Panel |
+| `POST /login`, `POST /logout` | Panel girişi (çerez) |
 | `GET /health` | Veritabanı, mod, işlem ve güvenli mod durumu |
 | `GET /config` | Gizli bilgi içermeyen ayar özeti |
 | `GET /bots` | 10 botun durumu |

@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MASTER CRYPTO AI X10 · Panel</title>
+<style>
+:root{--bg:#0d1117;--card:#161b22;--line:#262c36;--ink:#e6edf3;--mute:#9aa4b2;--blue:#79a8ff;--green:#6fd38a;--orange:#ffb27a;--amber:#f5b868;--red:#ff8a80}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif}
+.wrap{max-width:1360px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:14px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:14px}
+h1{margin:0;font-size:22px}
+h2{margin:0 0 10px;font-size:16px}
+.pill{display:inline-flex;gap:6px;align-items:center;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;background:#21262d;color:var(--mute)}
+.pill.ok{background:#12291a;color:var(--green)}.pill.warn{background:#3a2a12;color:var(--amber)}.pill.bad{background:#3a1616;color:var(--red)}.pill.blue{background:#14254a;color:#a9c7ff}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor;animation:p 1.4s infinite}@keyframes p{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.dot{animation:none}}
+.muted{color:var(--mute);font-size:12.5px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0}
+.kpi .l{color:var(--mute);font-size:12px}.kpi .v{font:600 22px ui-monospace,SFMono-Regular,Menlo,monospace;margin:4px 0}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:stretch}.row>.card{flex:1 1 420px}
+.num{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
+.pos{color:var(--green)}.neg{color:var(--orange)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{color:var(--mute);font-weight:500;text-align:left;padding:7px 8px 7px 0;white-space:nowrap}
+td{border-top:1px solid var(--line);padding:8px 8px 8px 0;vertical-align:top}
+.scroll{overflow-x:auto}
+button{min-height:40px;padding:0 14px;border-radius:8px;border:1px solid #343b47;background:#161b22;color:var(--ink);font:600 13px inherit;cursor:pointer}
+button:hover{border-color:#5a6372}button.danger{border-color:#f0883e;background:#2b1a0c;color:var(--orange)}button.go{border-color:#2e7a45;background:#12291a;color:var(--green)}
+button.small{min-height:32px;padding:0 10px;font-size:12px}
+.bots{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
+.bot{background:#0d1117;border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px}
+.bar{height:6px;border-radius:3px;background:#262c36;overflow:hidden}.bar>i{display:block;height:6px;background:var(--blue)}
+.badge{font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.b-ONAYLANDI,.b-YUKSEK_ONCELIK{background:#12291a;color:var(--green)}.b-RISK_KONTROLU{background:#14254a;color:#a9c7ff}
+.b-RISK_RED,.b-REDDEDILDI,.b-CELISKI{background:#2a1c14;color:var(--orange)}.b-VETO,.b-SISTEM_DURDU{background:#3a2a12;color:var(--amber)}
+.b-IZLEME,.b-DOGRULAMA{background:#21262d;color:var(--mute)}
+#login{position:fixed;inset:0;background:rgba(13,17,23,.96);display:none;align-items:center;justify-content:center;padding:16px;z-index:10}
+#login form{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px;width:min(420px,100%);display:flex;flex-direction:column;gap:12px}
+input,select{min-height:40px;border-radius:8px;border:1px solid #343b47;background:#0d1117;color:var(--ink);padding:0 10px;font:inherit}
+label{font-size:12px;color:var(--mute);display:flex;flex-direction:column;gap:4px}
+#toast{position:fixed;right:16px;bottom:16px;background:#21262d;border:1px solid var(--line);padding:10px 14px;border-radius:8px;display:none;max-width:420px;z-index:11}
+.warnbox{background:#3a2a12;border:1px solid #8a6424;color:var(--amber);border-radius:10px;padding:10px 14px;display:none}
+details summary{cursor:pointer;color:var(--mute)}
+</style>
+</head>
+<body>
+<div id="login"><form id="loginForm">
+  <h2>Panel girişi</h2>
+  <p class="muted">Erişim anahtarı Render'da servisin Environment sayfasındaki <b>DASHBOARD_TOKEN</b> değeridir.</p>
+  <label>Erişim anahtarı<input id="tok" type="password" autocomplete="current-password" required></label>
+  <button class="go" type="submit">Giriş</button>
+  <span id="loginErr" class="neg"></span>
+</form></div>
+<div id="toast" role="status"></div>
+
+<div class="wrap">
+<header>
+  <div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+      <h1>MASTER CRYPTO AI X10</h1>
+      <span id="mode" class="pill">—</span><span id="venue" class="pill">—</span><span id="state" class="pill">—</span>
+    </div>
+    <div class="muted num" id="sub">Yükleniyor…</div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    <button id="btnResume" class="go" type="button">Yeniden başlat</button>
+    <button id="btnKill" class="danger" type="button">Acil durdur</button>
+    <button id="btnLogout" type="button">Çıkış</button>
+  </div>
+</header>
+
+<div id="blocked" class="warnbox"></div>
+
+<section class="grid" aria-label="Kasa">
+  <div class="card kpi"><div class="l">Özkaynak</div><div class="v" id="k_eq">—</div><div class="muted" id="k_eq2"></div></div>
+  <div class="card kpi"><div class="l">Kullanılabilir / teminat</div><div class="v" id="k_av">—</div><div class="muted" id="k_av2"></div></div>
+  <div class="card kpi"><div class="l">Bugün / hafta / ay</div><div class="v" id="k_day">—</div><div class="muted" id="k_day2"></div></div>
+  <div class="card kpi"><div class="l">Zirveden düşüş</div><div class="v" id="k_dd">—</div><div class="bar"><i id="k_ddbar" style="width:0"></i></div><div class="muted">Sınır %10 → güvenli mod</div></div>
+  <div class="card kpi"><div class="l">Günlük zarar sınırı</div><div class="v" id="k_dl">—</div><div class="bar"><i id="k_dlbar" style="width:0;background:var(--amber)"></i></div></div>
+  <div class="card kpi"><div class="l">Haber / duyarlılık</div><div class="v" id="k_news">—</div><div class="muted" id="k_news2"></div></div>
+</section>
+
+<div class="row">
+  <section class="card" aria-label="Ana robot">
+    <h2>Ana robot</h2>
+    <div id="master" class="muted">—</div>
+  </section>
+  <section class="card" aria-label="Son 24 saat kararlar">
+    <h2>Son 24 saat kararları</h2>
+    <div id="dist" class="muted">—</div>
+    <div class="muted" id="runner" style="margin-top:8px"></div>
+  </section>
+</div>
+
+<section class="card" aria-label="Pozisyonlar">
+  <h2>Pozisyonlar</h2>
+  <div class="scroll"><table><thead><tr>
+    <th>Parite</th><th>Yön</th><th>Ortam</th><th>Strateji</th><th>Tutar</th><th>Giriş</th><th>Anlık</th><th>Stop (başl.→şimdi)</th><th>Hedef</th><th>Zirve net</th><th>Kâr kilidi</th><th>Net K/Z</th><th>Süre</th><th></th>
+  </tr></thead><tbody id="pos"></tbody></table></div>
+</section>
+
+<section class="card" aria-label="Kararlar">
+  <h2>Ana robot kararları</h2>
+  <div class="scroll"><table><thead><tr><th>Saat</th><th>Parite</th><th>ZD</th><th>Yön</th><th>Puan</th><th>Karar</th><th>Rejim</th><th>Gerekçe</th></tr></thead><tbody id="dec"></tbody></table></div>
+</section>
+
+<section class="card" aria-label="Botlar">
+  <h2>Botlar</h2>
+  <div id="bots" class="bots"></div>
+</section>
+
+<div class="row">
+  <section class="card" aria-label="NR7 tarayıcı">
+    <h2>NR7 tarayıcı (son 6 saat)</h2>
+    <div class="scroll"><table><thead><tr><th>Parite</th><th>ZD</th><th>Durum</th><th>NR7 yüksek / düşük</th><th>Hacim</th><th>Trend</th><th>Ana robot</th></tr></thead><tbody id="nr7"></tbody></table></div>
+  </section>
+  <section class="card" aria-label="Takvim">
+    <h2>Ekonomik takvim</h2>
+    <div class="scroll"><table><thead><tr><th>Zaman (TR)</th><th>Olay</th><th>Ülke</th></tr></thead><tbody id="cal"></tbody></table></div>
+    <p class="muted" id="calNote"></p>
+  </section>
+</div>
+
+<section class="card" aria-label="Performans">
+  <h2>Demo işlem performansı</h2>
+  <div id="perf" class="muted">—</div>
+</section>
+
+<section class="card" aria-label="Backtest">
+  <h2>Backtest</h2>
+  <form id="btForm" style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px">
+    <label>Zaman dilimi<select id="btTf"><option>15m</option><option>1h</option><option>5m</option></select></label>
+    <label>Gün<input id="btDays" type="number" min="3" max="90" value="30" style="width:90px"></label>
+    <label>Mod<select id="btMode"><option value="strateji">strateji</option><option value="sistem">sistem</option></select></label>
+    <button class="go" type="submit">Backtest başlat</button>
+  </form>
+  <div class="scroll"><table><thead><tr><th>#</th><th>Durum</th><th>ZD / mod</th><th>İşlem</th><th>Net</th><th>Komisyon öncesi</th><th>PF</th><th>Kazanma</th><th>Beklenen R</th><th>Azami düşüş</th><th></th></tr></thead><tbody id="bt"></tbody></table></div>
+  <p class="muted">Strateji modunda her işlem sabit 1 USD risk taşır; azami düşüş %'si bu modda kasa için anlamlı değildir. Geçmiş sonuçlar gelecekteki kazancı garanti etmez.</p>
+</section>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const fmt = (x, d = 2) => (x === null || x === undefined || x === "") ? "—" : Number(x).toLocaleString("tr-TR", {minimumFractionDigits: d, maximumFractionDigits: d});
+const usd = (x) => x === null || x === undefined ? "—" : (Number(x) >= 0 ? "+" : "−") + fmt(Math.abs(Number(x))) + " $";
+const cls = (x) => Number(x) >= 0 ? "pos" : "neg";
+const t = (iso) => iso ? new Date(iso).toLocaleTimeString("tr-TR", {hour: "2-digit", minute: "2-digit"}) : "—";
+const dt = (iso) => iso ? new Date(iso).toLocaleString("tr-TR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
+const LOCK = {0: "başlangıç", 1: "başabaş", 2: "kâr kilidi", 3: "takip eden", 4: "çıkış", 5: "kapandı", 6: "hata"};
+
+function el(tag, attrs = {}, ...kids) {        // metinler textContent ile: borsa/haber verisi HTML olarak yorumlanmaz
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") n.className = v; else if (k === "onclick") n.addEventListener("click", v); else n.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) n.append(k instanceof Node ? k : document.createTextNode(k ?? ""));
+  return n;
+}
+function fill(id, rows, empty) {
+  const tb = $(id); tb.replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", {colspan: "14", class: "muted"}, empty))]));
+}
+function toast(msg) { const x = $("toast"); x.textContent = msg; x.style.display = "block"; clearTimeout(toast.h); toast.h = setTimeout(() => x.style.display = "none", 5000); }
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {credentials: "same-origin", headers: {"Content-Type": "application/json"}, ...opts});
+  if (r.status === 401) { $("login").style.display = "flex"; throw new Error("auth"); }
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || ("HTTP " + r.status));
+  return body;
+}
+const post = (p, b) => api(p, {method: "POST", body: JSON.stringify(b)});
+
+$("loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try { await post("/login", {token: $("tok").value}); $("login").style.display = "none"; $("tok").value = ""; refresh(); }
+  catch (err) { $("loginErr").textContent = "Anahtar geçersiz"; }
+});
+$("btnLogout").onclick = async () => { await post("/logout", {}); $("login").style.display = "flex"; };
+$("btnKill").onclick = async () => {
+  const reason = prompt("Acil durdurma nedeni (yeni işlemler durur, mevcut stoplar korunur):", "elle acil durdurma");
+  if (!reason) return;
+  try { await post("/system/kill-switch", {reason}); toast("Acil durdurma uygulandı"); refresh(); } catch (e) { toast("Hata: " + e.message); }
+};
+$("btnResume").onclick = async () => {
+  if (!confirm("Yeni işlemlere yeniden izin verilsin mi? Güvenli mod kaldırılır.")) return;
+  try { await post("/system/resume", {confirm: true}); toast("Sistem yeniden başlatıldı"); refresh(); } catch (e) { toast("Hata: " + e.message); }
+};
+$("btForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try { const r = await post("/backtest", {timeframe: $("btTf").value, days: Number($("btDays").value), mode: $("btMode").value, compare_profit_lock: true});
+        toast("Backtest #" + r.id + " başladı: " + r.params.symbols.join(", ")); refresh(); }
+  catch (err) { toast("Hata: " + err.message); }
+});
+
+function renderHeader(h, risk) {
+  $("mode").textContent = h.mode; $("mode").className = "pill blue";
+  $("venue").textContent = h.bybit_demo ? "Bybit demo" : "Bybit CANLI"; $("venue").className = "pill " + (h.bybit_demo ? "warn" : "bad");
+  const st = $("state");
+  st.replaceChildren(el("span", {class: "dot"}), h.safe_mode ? "Güvenli mod" : (h.trading_enabled ? "Çalışıyor" : "Yeni işlem kapalı"));
+  st.className = "pill " + (h.safe_mode ? "bad" : h.trading_enabled ? "ok" : "warn");
+  $("sub").textContent = "Son güncelleme " + new Date().toLocaleTimeString("tr-TR") + " · veritabanı " + (h.database ? "bağlı" : "YOK");
+  const blocks = risk.new_trades_blocked_by || [];
+  const reason = risk.system && risk.system.safe_mode_reason;
+  $("blocked").style.display = blocks.length || reason ? "block" : "none";
+  $("blocked").textContent = [reason ? "Güvenli mod: " + reason : "", ...blocks.map(b => "Engel: " + b)].filter(Boolean).join(" · ");
+}
+
+function renderPortfolio(p, risk, cal) {
+  $("k_eq").textContent = fmt(p.equity) + " $";
+  $("k_eq2").replaceChildren(el("span", {class: cls(Number(p.equity) - Number(p.starting_capital))}, usd(Number(p.equity) - Number(p.starting_capital)) + " başlangıçtan"));
+  $("k_av").textContent = fmt(p.available) + " $"; $("k_av2").textContent = "teminat " + fmt(p.margin_in_use) + " $ · " + p.open_positions + " açık pozisyon";
+  $("k_day").replaceChildren(el("span", {class: cls(p.day_pnl)}, usd(p.day_pnl)));
+  $("k_day2").textContent = "hafta " + usd(p.week_pnl) + " · ay " + usd(p.month_pnl);
+  const dd = Number(p.drawdown_pct); $("k_dd").textContent = "%" + fmt(dd); $("k_ddbar").style.width = Math.min(100, dd * 10) + "%";
+  const used = Math.max(0, -Number(risk.usage.daily_pnl)), lim = Number(risk.usage.daily_limit) || 1;
+  $("k_dl").textContent = fmt(used) + " / " + fmt(lim) + " $"; $("k_dlbar").style.width = Math.min(100, used / lim * 100) + "%";
+  if (cal && cal.enabled) {
+    $("k_news").textContent = cal.veto_active ? "VETO" : (cal.fear_greed ?? "—") + " F&G";
+    $("k_news").className = "v " + (cal.veto_active ? "neg" : "");
+    $("k_news2").textContent = cal.veto_active ? "yeni işlem yok: " + (cal.veto_events[0]?.title || "") :
+      (cal.next_event ? "sonraki: " + cal.next_event.title + " (" + cal.minutes_to_next + " dk)" : "yüksek etkili veri yok");
+  }
+}
+
+function renderMaster(m) {
+  const i = m.inputs || {}, d = m.last_decision;
+  $("master").replaceChildren(
+    el("div", {}, "Model: ", el("b", {}, m.model_version), " · haber vetosu: ", el("b", {}, i.news_veto ? "AKTİF" : "yok"),
+       " · duyarlılık: ", el("b", {}, i.sentiment ?? "—")),
+    d ? el("div", {style: "margin-top:8px"}, "Son karar ", el("b", {}, d.symbol + " " + (d.direction || "")), " ",
+          el("span", {class: "badge b-" + d.outcome}, d.outcome), " puan " + d.score, el("div", {class: "muted"}, d.reason))
+      : el("div", {}, "Henüz karar yok"),
+    el("div", {class: "muted", style: "margin-top:8px"}, m.execution));
+  const dist = m.decisions_24h || {};
+  $("dist").replaceChildren(...(Object.keys(dist).length ? Object.entries(dist).map(([k, v]) =>
+     el("span", {class: "badge b-" + k, style: "margin:0 6px 6px 0;display:inline-block"}, k + " " + v)) : ["Son 24 saatte karar yok"]));
+}
+
+function renderRunner(r) {
+  if (!r.enabled) return;
+  $("runner").textContent = Object.entries(r.last_runs || {}).map(([tf, x]) =>
+    tf + ": " + x.analyzed + "/" + x.symbols + " parite, " + x.signals_trade + " sinyal, " + x.duration_ms + " ms (" + t(x.started_at) + ")").join(" · ");
+}
+
+async function closePos(id, sym) {
+  if (!confirm(sym + " pozisyonu piyasa emriyle kapatılsın mı?")) return;
+  try { const r = await post("/positions/" + id + "/close", {confirm: true, reason: "panelden elle kapatma"}); toast("Kapatma: " + r.status); refresh(); }
+  catch (e) { toast("Hata: " + e.message); }
+}
+function renderPositions(ps) {
+  fill("pos", ps.map(p => {
+    const open = p.status !== "KAPALI";
+    const pnl = open ? p.unrealized_net_pnl : p.realized_net_pnl;
+    return el("tr", {},
+      el("td", {}, el("b", {}, p.symbol)), el("td", {class: p.side === "LONG" ? "pos" : "neg"}, p.side), el("td", {}, p.venue || "—"),
+      el("td", {class: "muted"}, (p.strategy || "").split("+")[0]), el("td", {class: "num"}, fmt(p.notional_usd) + " $"),
+      el("td", {class: "num"}, p.entry_price), el("td", {class: "num"}, p.last_price ?? "—"),
+      el("td", {class: "num"}, p.initial_stop + " → " + p.current_stop), el("td", {class: "num"}, p.take_profit ?? "—"),
+      el("td", {class: "num"}, "%" + fmt(p.peak_net_pnl_pct ?? 0)), el("td", {}, LOCK[p.lock_state] ?? "—"),
+      el("td", {class: "num " + cls(pnl)}, usd(pnl) + (open ? " (açık)" : "")),
+      el("td", {class: "num"}, p.duration_min + " dk"),
+      el("td", {}, open ? el("button", {class: "small danger", type: "button", onclick: () => closePos(p.id, p.symbol)}, "Kapat") : el("span", {class: "muted"}, "kapandı")));
+  }), "Henüz pozisyon yok. Ana robot 75+ puan ve risk onayı olan fırsatı bekliyor.");
+}
+
+function renderDecisions(ds) {
+  fill("dec", ds.map(d => el("tr", {},
+    el("td", {class: "num"}, t(d.created_at)), el("td", {}, el("b", {}, d.symbol)), el("td", {}, d.timeframe || ""),
+    el("td", {}, d.direction || ""), el("td", {class: "num"}, d.score), el("td", {}, el("span", {class: "badge b-" + d.outcome}, d.outcome)),
+    el("td", {class: "muted"}, d.regime || ""), el("td", {class: "muted", style: "min-width:280px"}, d.reason))), "Henüz karar yok");
+}
+
+async function toggleBot(b) {
+  try { await api("/bots/" + b.bot_id, {method: "PATCH", body: JSON.stringify({enabled: !b.enabled})}); refresh(); }
+  catch (e) { toast("Hata: " + e.message); }
+}
+function renderBots(bs) {
+  $("bots").replaceChildren(...bs.map(b => {
+    const acc = b.signals_total ? Math.round(b.signals_accepted / b.signals_total * 100) : 0;
+    return el("div", {class: "bot"},
+      el("div", {style: "display:flex;justify-content:space-between;gap:8px"},
+         el("div", {}, el("div", {class: "muted num"}, b.bot_id), el("b", {}, b.name)),
+         el("span", {class: "pill " + (!b.implemented ? "" : !b.enabled ? "warn" : b.status === "hata" ? "bad" : "ok")},
+            !b.implemented ? "yok" : !b.enabled ? "pasif" : b.status)),
+      el("div", {class: "muted"}, b.role),
+      el("div", {class: "num muted"}, "ağırlık " + b.weight + " · sinyal " + b.signals_total + " · kabul " + b.signals_accepted + " (%" + acc + ")"),
+      el("div", {class: "muted"}, "son analiz " + t(b.last_analysis_at) + (b.last_error ? " · hata: " + b.last_error : "")),
+      b.implemented && b.kind === "signal" ? el("button", {class: "small", type: "button", onclick: () => toggleBot(b)}, b.enabled ? "Pasife al" : "Aktif et")
+        : el("span", {class: "muted"}, b.kind === "guard" ? "zorunlu katman, kapatılamaz" : ""));
+  }));
+}
+
+function renderNr7(rows) {
+  fill("nr7", rows.slice(0, 15).map(r => el("tr", {},
+    el("td", {}, el("b", {}, r.symbol)), el("td", {}, r.timeframe), el("td", {}, r.status || ""),
+    el("td", {class: "num"}, fmt(r.nr7_high, 4) + " / " + fmt(r.nr7_low, 4)), el("td", {class: "num"}, r.volume_ratio ? r.volume_ratio + "x" : "—"),
+    el("td", {}, (r.trend || "—") + " / üst " + (r.htf_trend || "—")),
+    el("td", {}, r.main_robot_decision ? el("span", {class: "badge b-" + r.main_robot_decision.outcome}, r.main_robot_decision.outcome + " " + r.main_robot_decision.score) : "—"))),
+    "Son 6 saatte NR7 yok");
+}
+
+function renderCalendar(c) {
+  if (!c.enabled) return;
+  fill("cal", (c.high_impact_events || []).map(e => el("tr", {}, el("td", {class: "num"}, dt(e.time)), el("td", {}, e.title), el("td", {}, e.country))), "Yüksek etkili veri yok");
+  $("calNote").textContent = "Veto: yüksek etkili USD verisinden 15 dk önce/sonra. Bağlı olmayan kaynaklar: " + (c.not_connected_sources || []).join(", ");
+}
+
+function renderPerf(p) {
+  const s = p.summary || {};
+  if (!s.trades) { $("perf").textContent = "Henüz kapanmış demo işlem yok."; return; }
+  $("perf").replaceChildren(el("div", {class: "num"},
+    s.trades + " işlem · net " + usd(s.net_profit) + " · kazanma %" + fmt(s.win_rate_pct, 1) + " · PF " + (s.profit_factor ?? "—") +
+    " · beklenen " + (s.expectancy_r ?? "—") + "R · azami düşüş %" + fmt(s.max_drawdown_pct) + " · komisyon " + fmt(s.fees_paid) + " $"),
+    el("div", {class: "muted", style: "margin-top:6px"}, Object.entries(p.by_strategy || {}).map(([k, v]) => k + ": " + v.trades + " işlem, " + usd(v.net)).join(" · ")));
+}
+
+async function applyWeights(id) {
+  if (!confirm("Backtest #" + id + " önerdiği bot ağırlıkları uygulansın mı?")) return;
+  try { const r = await post("/backtest/" + id + "/apply-weights", {confirm: true}); toast("Uygulandı: " + Object.keys(r.applied).join(", ")); refresh(); }
+  catch (e) { toast("Hata: " + e.message); }
+}
+function renderBacktests(rows) {
+  fill("bt", rows.map(r => {
+    const s = r.summary || {};
+    return el("tr", {},
+      el("td", {class: "num"}, r.id), el("td", {}, el("span", {class: "pill " + (r.status === "BITTI" ? "ok" : r.status === "HATA" ? "bad" : "warn")}, r.status)),
+      el("td", {}, (r.params.timeframe || "") + " / " + (r.params.mode || "") + " · " + (r.params.days || "") + " gün"),
+      el("td", {class: "num"}, s.trades ?? "—"), el("td", {class: "num " + cls(s.net_profit)}, s.net_profit !== undefined ? usd(s.net_profit) : "—"),
+      el("td", {class: "num"}, s.net_before_fees !== undefined ? usd(s.net_before_fees) : "—"),
+      el("td", {class: "num"}, s.profit_factor ?? "—"), el("td", {class: "num"}, s.win_rate_pct !== undefined ? "%" + fmt(s.win_rate_pct, 1) : "—"),
+      el("td", {class: "num"}, s.expectancy_r ?? "—"), el("td", {class: "num"}, s.max_drawdown_pct !== undefined ? "%" + fmt(s.max_drawdown_pct) : "—"),
+      el("td", {}, r.status === "BITTI" ? el("button", {class: "small", type: "button", onclick: () => applyWeights(r.id)}, "Ağırlıkları uygula") : (r.error || "")));
+  }), "Henüz backtest yok");
+}
+
+async function refresh() {
+  try {
+    const [h, p, risk, m, bots, pos, dec, nr7, cal, perf, bt, run] = await Promise.all([
+      api("/health"), api("/portfolio"), api("/risk"), api("/master"), api("/bots"), api("/positions?limit=30"),
+      api("/decisions?limit=25"), api("/nr7"), api("/calendar"), api("/performance"), api("/backtest"), api("/runner")]);
+    renderHeader(h, risk); renderPortfolio(p, risk, cal); renderMaster(m); renderRunner(run); renderPositions(pos);
+    renderDecisions(dec); renderBots(bots); renderNr7(nr7); renderCalendar(cal); renderPerf(perf); renderBacktests(bt);
+  } catch (e) { if (e.message !== "auth") $("sub").textContent = "Bağlantı hatası: " + e.message; }
+}
+refresh();
+setInterval(() => { if (!document.hidden && $("login").style.display !== "flex") refresh(); }, 10000);
+</script>
+</body>
+</html>
