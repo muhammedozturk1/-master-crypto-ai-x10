@@ -55,9 +55,15 @@ class Decision(Base):
     """Ana robotun her kararı: açılan, reddedilen ve vetolanan fırsatlar."""
 
     __tablename__ = "decisions"
+    __table_args__ = (Index("uq_decisions_key", "decision_key", unique=True),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    decision_key: Mapped[str | None] = mapped_column(String(160))
     symbol: Mapped[str] = mapped_column(String(32), index=True)
-    outcome: Mapped[str] = mapped_column(String(16))  # ACILDI / REDDEDILDI / VETO / IZLEME
+    timeframe: Mapped[str | None] = mapped_column(String(8))
+    direction: Mapped[str | None] = mapped_column(String(5))
+    plan: Mapped[dict | None] = mapped_column(JSON)
+    # YUKSEK_ONCELIK / RISK_KONTROLU / DOGRULAMA / IZLEME / REDDEDILDI / CELISKI / VETO / SISTEM_DURDU
+    outcome: Mapped[str] = mapped_column(String(16))
     score: Mapped[int] = mapped_column(Integer)
     strategy_id: Mapped[str | None] = mapped_column(String(64))
     market_regime: Mapped[str | None] = mapped_column(String(32))

@@ -13,8 +13,8 @@ Varsayılan mod **PAPER** (Bybit demo hesabı). Canlı mod iki ayrı açık onay
 | 1 | Mimari, ayarlar, veritabanı, API iskeleti | Tamamlandı |
 | 2 | Bybit veri bağlantısı ve coin tarayıcı | Tamamlandı |
 | 3 | 10 botun stratejileri | Tamamlandı (sinyal botları; BOT07-09 Aşama 5-6'da) |
-| 4 | Ana robot karar motoru | Sırada |
-| 5 | Risk ve sermaye | Bekliyor |
+| 4 | Ana robot karar motoru | Tamamlandı |
+| 5 | Risk ve sermaye | Sırada |
 | 6 | Emir ve pozisyon yönetimi | Bekliyor |
 | 7 | Kâr koruma kilidi | Bekliyor |
 | 8 | Backtest ve paper trading | Bekliyor |
@@ -88,6 +88,27 @@ USDT perpetual paritelerinden 24 saatlik hacmi 10 milyon USDT'nin altındakileri
 Mum uçları yalnızca kapanmış mumları döndürür ve veri kalitesini (boşluk, bayatlık,
 OHLC tutarlılığı) kontrol eder.
 
+## Ana robot (Aşama 4)
+
+Her bot turundan sonra yeni işlem sinyali olan her parite için karar verir:
+
+1. **Piyasa rejimi** (10 rejim): haber belirsizliği, anormal hareket, düşük likidite, yüksek
+   volatilite, volatilite sıkışması, güçlü/zayıf yükseliş, güçlü/zayıf düşüş, yatay. EMA
+   20/50/200, ADX, ATR ve Bollinger genişliğinin 120 mumluk yüzdelik sırası, spread ve son mum
+   hareketi kullanılır. ADX 25/20 eşikleri başlangıç değeridir, backtest ile doğrulanacak.
+2. **Strateji ağırlığı:** rejime göre (ör. güçlü yükselişte trend ve kırılım 1,3; trende karşı
+   0; yatayda mean reversion 1,3; haber, anormal hareket ve düşük likiditede yeni işlem yok).
+3. **100 puanlık birleştirme:** teknik 20, trend 20, hacim/likidite 15, rejim uyumu 15, haber
+   10, akış/on-chain 10, geçmiş performans 10. Aynı kategorideki benzer sinyaller toplanmaz, en
+   güçlüsü alınır. Eksik veri güveni düşürür; on-chain ve performans geçmişi yokken nötr puan.
+4. **Karar:** 0-49 red, 50-64 izleme, 65-74 ek doğrulama, 75-84 risk değerlendirmesi, 85+
+   yüksek öncelik. İki yön eşit güçteyse çelişki nedeniyle red. Haber vetosu, acil durdurma
+   veya güvenli modda işlem kararı çıkmaz.
+
+Her karar gerekçesi, puan dağılımı, rejimi, destekleyen sinyaller ve işlem planıyla (giriş,
+stop, hedef) kaydedilir. Reddedilen fırsatlar da kaydedilir. 75 üstü kararlar şimdilik
+yalnız kayıt: risk katmanı ve emir katmanı devreye girmeden emir oluşmaz.
+
 ## Seçilen çalışma biçimi
 
 - Şartnamedeki 10 bot ve risk kuralları.
@@ -145,5 +166,7 @@ Bybit API anahtarına **para çekme yetkisi vermeyin**.
 | `GET /runner` | Son bot turlarının raporu |
 | `GET /calendar` | Takvim vetosu, yaklaşan yüksek etkili veriler, Fear & Greed |
 | `GET /arbitrage` | Arbitraj gözlem raporu |
+| `GET /decisions` | Ana robot kararları (`outcome=REDDEDILDI` gibi filtrelerle) |
+| `GET /master` | Ana robot özeti: son karar, 24 saatlik dağılım, veto ve bot ağırlıkları |
 
 Yazma uçları `X-Dashboard-Token` başlığı ister.

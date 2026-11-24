@@ -35,15 +35,28 @@ def get_engine() -> Engine:
     return _engine
 
 
+# Mevcut tablolara sonradan eklenen sütunlar: (tablo, sütun, tip) ve benzersiz indeksler
+ADDED_COLUMNS = [
+    ("signals", "dedup_key", "VARCHAR(160)"),
+    ("decisions", "decision_key", "VARCHAR(160)"),
+    ("decisions", "timeframe", "VARCHAR(8)"),
+    ("decisions", "direction", "VARCHAR(5)"),
+    ("decisions", "plan", "JSON"),
+]
+UNIQUE_INDEXES = [("uq_signals_dedup", "signals", "dedup_key"), ("uq_decisions_key", "decisions", "decision_key")]
+
+
 def _migrate(engine: Engine) -> None:
-    """Mevcut tablolara sonradan eklenen sütunlar (create_all eski tabloları değiştirmez)."""
+    """create_all eski tabloları değiştirmez; eksik sütun ve indeksleri ekler."""
     insp = inspect(engine)
-    if "signals" in insp.get_table_names():
-        cols = {c["name"] for c in insp.get_columns("signals")}
-        with engine.begin() as conn:
-            if "dedup_key" not in cols:
-                conn.execute(text("ALTER TABLE signals ADD COLUMN dedup_key VARCHAR(160)"))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_signals_dedup ON signals (dedup_key)"))
+    tables = set(insp.get_table_names())
+    with engine.begin() as conn:
+        for table, col, typ in ADDED_COLUMNS:
+            if table in tables and col not in {c["name"] for c in insp.get_columns(table)}:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {typ}"))
+        for name, table, col in UNIQUE_INDEXES:
+            if table in tables:
+                conn.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS {name} ON {table} ({col})"))
 
 
 def init_db() -> None:

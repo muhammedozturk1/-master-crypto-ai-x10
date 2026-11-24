@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.database.models import SignalRecord
+from app.database.models import Decision, SignalRecord
 from app.database.session import get_session
 
 router = APIRouter()
@@ -24,6 +24,13 @@ def _row(r: SignalRecord) -> dict:
         "take_profit": p.get("take_profit"), "expected_net_rr": p.get("expected_net_rr"),
         "reason": p.get("reason"), "risk_warnings": p.get("risk_warnings", []),
     }
+
+
+def _decision_brief(session: Session, decision_id: int | None) -> dict | None:
+    if decision_id is None:
+        return None
+    d = session.get(Decision, decision_id)
+    return {"outcome": d.outcome, "score": d.score, "direction": d.direction} if d else None
 
 
 @router.get("/signals")
@@ -59,7 +66,7 @@ def nr7_scanner(hours: int = Query(6, ge=1, le=72), session: Session = Depends(g
             "volume_ratio": d.get("volume_ratio"), "trend": d.get("trend"), "htf_trend": d.get("htf_trend"),
             "breakout": d.get("breakout"), "inside_bar": d.get("inside_bar"), "squeeze": d.get("squeeze"),
             "action": r.action, "confidence": r.confidence, "seen_at": r.created_at.isoformat(),
-            "main_robot_decision": None,  # Aşama 4'te ana robot dolduracak
+            "main_robot_decision": _decision_brief(session, r.decision_id),
         })
     return out
 
@@ -103,4 +110,46 @@ def arbitrage(request: Request) -> dict:
         "enabled": True, "mode": "gozlem", "checked_at": st.checked_at.isoformat() if st.checked_at else None,
         "best": st.best(), "triangular": st.triangular, "cross_exchange": st.cross, "errors": st.errors,
         "note": "Net değerler komisyon sonrasıdır; borsalar arası transfer ücreti ve süresi dahil değildir.",
+    }
+
+
+def _decision_row(d: Decision) -> dict:
+    return {
+        "id": d.id, "created_at": d.created_at.isoformat(), "symbol": d.symbol, "timeframe": d.timeframe,
+        "direction": d.direction, "outcome": d.outcome, "score": d.score, "strategy": d.strategy_id,
+        "regime": d.market_regime, "reason": d.reason, "plan": d.plan, "contributions": d.contributions,
+        "model_version": d.model_version,
+    }
+
+
+@router.get("/decisions")
+def decisions(outcome: str | None = None, symbol: str | None = None, limit: int = Query(50, ge=1, le=500),
+              session: Session = Depends(get_session)) -> list[dict]:
+    """Ana robot kararları; reddedilen fırsatlar ve nedenleri dahil (şartname 21.2)."""
+    q = select(Decision).order_by(Decision.id.desc()).limit(limit)
+    if outcome:
+        q = q.where(Decision.outcome == outcome.upper())
+    if symbol:
+        q = q.where(Decision.symbol == symbol.upper())
+    return [_decision_row(d) for d in session.scalars(q)]
+
+
+@router.get("/master")
+def master_status(request: Request, session: Session = Depends(get_session)) -> dict:
+    """Ana robot kontrol merkezi özeti: son karar, son 24 saatin karar dağılımı, piyasa girdileri."""
+    from sqlalchemy import func
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    counts = dict(session.execute(select(Decision.outcome, func.count()).where(Decision.created_at >= since)
+                                  .group_by(Decision.outcome)).all())
+    last = session.scalars(select(Decision).order_by(Decision.id.desc()).limit(1)).first()
+    runner = getattr(request.app.state, "runner", None)
+    mi = runner.market_inputs() if runner else None
+    return {
+        "model_version": "kural-v1",
+        "last_decision": _decision_row(last) if last else None,
+        "decisions_24h": counts,
+        "inputs": {"news_veto": mi.news_veto, "veto_reason": mi.veto_reason, "sentiment": mi.sentiment,
+                   "trading_enabled": mi.trading_enabled, "safe_mode": mi.safe_mode,
+                   "bot_weights": mi.bot_weights} if mi else None,
+        "execution": "Emir gönderimi yok: risk katmanı (Aşama 5) ve emir katmanı (Aşama 6) henüz devrede değil.",
     }

@@ -22,7 +22,10 @@ from app.bots.base import MarketContext, WorkerBot
 from app.bots.registry import IMPLEMENTATIONS
 from app.config import MarketType, Settings
 from app.data.candles import INTERVAL_MINUTES, TIMEFRAME_TO_INTERVAL, closed_only, now_ms, validate_candles
-from app.database.models import BotState, ScanSnapshot, SignalRecord
+from app.database.models import BotState, ScanSnapshot, SignalRecord, SystemState
+from app.database.models import Decision as DecisionRecord
+from app.engines.calendar_service import fng_sentiment, veto_status
+from app.master_robot.decision_engine import Decision, MarketInputs, decide
 from app.database.session import session_scope
 from app.domain.signals import Action, Signal
 from app.exchange.bybit_public import BybitPublic
@@ -45,6 +48,7 @@ class RunReport:
     missing_derivatives: int = 0
     signals_new: int = 0
     signals_trade: int = 0
+    decisions: dict[str, int] = field(default_factory=dict)
     bot_errors: dict[str, str] = field(default_factory=dict)
     duration_ms: int = 0
 
@@ -62,8 +66,10 @@ def active_bots() -> list[WorkerBot]:
     return [cls() for bid, cls in IMPLEMENTATIONS.items() if bid in enabled]
 
 
-def save_signals(signals: list[Signal], bot_ids: list[str], errors: dict[str, str]) -> tuple[int, int]:
-    """Sinyalleri tekrarsız kaydeder; bot durumlarını günceller. (yeni, işlem sinyali) döndürür."""
+def save_signals(signals: list[Signal], bot_ids: list[str], errors: dict[str, str],
+                 new_keys: set[str] | None = None) -> tuple[int, int]:
+    """Sinyalleri tekrarsız kaydeder; bot durumlarını günceller. (yeni, işlem sinyali) döndürür.
+    new_keys verilirse yeni kaydedilen sinyallerin anahtarları buna eklenir."""
     new = trade = 0
     now = datetime.now(timezone.utc)
     with session_scope() as s:
@@ -75,6 +81,8 @@ def save_signals(signals: list[Signal], bot_ids: list[str], errors: dict[str, st
             if key and key in existing:
                 continue
             existing.add(key)
+            if new_keys is not None and key:
+                new_keys.add(key)
             s.add(SignalRecord(
                 dedup_key=key, bot_id=sg.bot_id, strategy_id=sg.strategy_id, symbol=sg.symbol,
                 timeframe=sg.timeframe, action=sg.action.value, confidence=sg.confidence,
@@ -93,6 +101,28 @@ def save_signals(signals: list[Signal], bot_ids: list[str], errors: dict[str, st
             st.status = "hata" if bid in errors else "calisiyor"
             st.last_error = errors.get(bid)
     return new, trade
+
+
+def save_decision(d: Decision) -> bool:
+    """Kararı kaydeder ve dayandığı sinyalleri karara bağlar. Aynı karar ikinci kez yazılmaz."""
+    with session_scope() as s:
+        if s.scalars(select(DecisionRecord.id).where(DecisionRecord.decision_key == d.key)).first():
+            return False
+        rec = DecisionRecord(
+            decision_key=d.key, symbol=d.symbol, timeframe=d.timeframe, direction=d.direction,
+            outcome=d.outcome, score=d.score, strategy_id=d.strategy, market_regime=d.regime.regime.value,
+            reason=d.reason[:2000], contributions=d.contributions, plan=d.plan, model_version=d.model_version,
+        )
+        s.add(rec)
+        s.flush()
+        if d.signal_keys:
+            for sr in s.scalars(select(SignalRecord).where(SignalRecord.dedup_key.in_(d.signal_keys))):
+                sr.decision_id = rec.id
+                if d.outcome in ("RISK_KONTROLU", "YUKSEK_ONCELIK") and sr.action == ("AL" if d.direction == "LONG" else "SAT"):
+                    st = s.get(BotState, sr.bot_id)
+                    if st:
+                        st.signals_accepted += 1
+    return True
 
 
 class BotRunner:
@@ -138,6 +168,7 @@ class BotRunner:
         signals: list[Signal] = []
         errors: dict[str, str] = {}
         sem = asyncio.Semaphore(self.settings.runner_concurrency)
+        contexts: dict[str, MarketContext] = {}
 
         btc: list = []
         if all_bots:
@@ -175,6 +206,7 @@ class BotRunner:
                                 spread_pct=float(c.get("spread_pct") or 0), allow_short=linear,
                                 taker_fee_pct=self.settings.taker_fee_pct, extra=extra)
             rep.analyzed += 1
+            contexts[sym] = ctx
             run_bots(symbol_bots, ctx)
 
         if symbol_bots and cands:
@@ -183,14 +215,55 @@ class BotRunner:
             extra = {name: fn() for name, fn in self.providers.items()}
             run_bots(wide_bots, MarketContext(symbol="PIYASA", timeframe=tf, candles=btc,
                                               allow_short=linear, extra=extra))
-        rep.signals_new, rep.signals_trade = save_signals(signals, rep.bots, errors)
+        new_keys: set[str] = set()
+        rep.signals_new, rep.signals_trade = save_signals(signals, rep.bots, errors, new_keys)
         rep.bot_errors = errors
+        try:
+            rep.decisions = self._decide(contexts, signals, new_keys)
+        except Exception:  # noqa: BLE001 – karar hatası sinyal kaydını bozmaz
+            log.exception("Ana robot kararı başarısız (%s)", tf)
+            rep.decisions = {"HATA": 1}
         rep.duration_ms = int((time.monotonic() - t0) * 1000)
         self.reports[tf] = rep
-        log.info("Bot turu %s [%s]: %d/%d sembol, %d yeni sinyal (%d işlem), %d veri sorunu, %d eksik türev, %d ms",
-                 tf, ",".join(rep.bots), rep.analyzed, rep.symbols, rep.signals_new, rep.signals_trade,
-                 len(rep.data_problems), rep.missing_derivatives, rep.duration_ms)
+        log.info("Bot turu %s [%s]: %d/%d sembol, %d yeni sinyal (%d işlem), %d veri sorunu, %d eksik türev, "
+                 "kararlar %s, %d ms", tf, ",".join(rep.bots), rep.analyzed, rep.symbols, rep.signals_new,
+                 rep.signals_trade, len(rep.data_problems), rep.missing_derivatives, rep.decisions or "{}", rep.duration_ms)
         return rep
+
+    def market_inputs(self) -> MarketInputs:
+        mi = MarketInputs()
+        cal = self.providers.get("calendar")
+        st = cal() if cal else None
+        if st is not None and getattr(st, "fetched_at", None):
+            v = veto_status(st.events, datetime.now(timezone.utc), self.settings.news_blackout_before_min,
+                            self.settings.news_blackout_after_min)
+            mi.news_veto = v["veto_active"]
+            if v["veto_active"]:
+                ev = v["veto_events"][0]
+                mi.veto_reason = f"haber vetosu: {ev['title']} ({ev['time']})"
+            mi.sentiment = fng_sentiment(st.fear_greed)
+        with session_scope() as s:
+            mi.bot_weights = {b.bot_id: float(b.weight) for b in s.scalars(select(BotState))}
+            sysst = s.get(SystemState, 1)
+            if sysst:
+                mi.trading_enabled, mi.safe_mode = sysst.trading_enabled, sysst.safe_mode
+        return mi
+
+    def _decide(self, contexts: dict[str, MarketContext], signals: list[Signal], new_keys: set[str]) -> dict[str, int]:
+        """Yeni işlem sinyali olan her sembol için ana robot kararı; kararlar kaydedilir."""
+        fresh = {s.symbol for s in signals if s.action != Action.BEKLE and s.details.get("dedup_key") in new_keys}
+        if not fresh:
+            return {}
+        mi = self.market_inputs()
+        out: dict[str, int] = {}
+        for sym in sorted(fresh):
+            ctx = contexts.get(sym)
+            if ctx is None:
+                continue
+            d = decide(ctx, [s for s in signals if s.symbol == sym], mi)
+            if d and save_decision(d):
+                out[d.outcome] = out.get(d.outcome, 0) + 1
+        return out
 
     def due_timeframes(self, at_ms: int | None = None) -> list[str]:
         t = now_ms() if at_ms is None else at_ms

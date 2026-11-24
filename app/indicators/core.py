@@ -199,12 +199,16 @@ def donchian(highs: Sequence[float], lows: Sequence[float], period: int = 20) ->
 
 
 def percentile_rank(values: Sequence[float | None], i: int, lookback: int) -> float | None:
-    """values[i]'nin önceki `lookback` değer içindeki yüzdelik sırası (0-100)."""
+    """values[i]'nin önceki `lookback` değer içindeki yüzdelik sırası (0-100).
+    Eşit değerler yarım sayılır (orta sıra): sabit bir seri 50 verir, 0 değil."""
     window = [v for v in values[max(0, i - lookback):i] if v is not None]
     cur = values[i]
     if cur is None or len(window) < lookback // 2:
         return None
-    return 100 * sum(1 for v in window if v < cur) / len(window)
+    eps = 1e-12 * max(1.0, abs(cur))
+    less = sum(1 for v in window if v < cur - eps)
+    equal = sum(1 for v in window if abs(v - cur) <= eps)
+    return 100 * (less + 0.5 * equal) / len(window)
 
 
 def slope(values: Series, i: int, bars: int = 5) -> float | None:
