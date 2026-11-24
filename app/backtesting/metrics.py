@@ -64,8 +64,10 @@ def summarize(trades: list[Trade], equity: list[tuple[int, float]], start_capita
     dsd = math.sqrt(sum(r * r for r in downside) / len(rets)) if rets and downside else 0.0
     net = final - start_capital
     winners_with_peak = [t for t in trades if t.peak_net > 0 and t.net > 0]
+    gross_before_fees = net + sum(t.fees for t in trades)
     return {
         "trades": n,
+        "net_before_fees": round(gross_before_fees, 4),
         "net_profit": round(net, 4),
         "total_return_pct": round(net / start_capital * 100, 3),
         "profit_factor": round(gross_win / gross_loss, 3) if gross_loss > 0 else (None if not wins else "sonsuz"),
@@ -82,7 +84,7 @@ def summarize(trades: list[Trade], equity: list[tuple[int, float]], start_capita
         "fees_paid": round(sum(t.fees for t in trades), 4),
         "avg_duration_min": round(sum((t.exit_ms - t.entry_ms) / 60_000 for t in trades) / n, 1) if n else None,
         # Kâr kilidi verimliliği: kazanan işlemlerde gerçekleşen net / ulaşılan zirve net
-        "profit_lock_efficiency": round(sum(t.net / t.peak_net for t in winners_with_peak) / len(winners_with_peak), 3)
+        "profit_lock_efficiency": round(sum(min(1.0, t.net / t.peak_net) for t in winners_with_peak) / len(winners_with_peak), 3)
         if winners_with_peak else None,
         "exit_reasons": _count(t.exit_reason for t in trades),
     }

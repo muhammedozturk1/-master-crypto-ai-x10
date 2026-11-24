@@ -64,24 +64,31 @@ async def equity_loop(settings, every_sec: int = 300) -> None:
         await asyncio.sleep(every_sec)
 
 
-async def first_backtest(app: FastAPI, settings, delay_sec: int = 120) -> None:
-    """Hiç backtest yoksa bir kez doğrulama backtest'i başlatır (15m, 30 gün, en likit 5 parite)."""
+BACKTEST_SUITE = [("15m", "strateji"), ("15m", "sistem"), ("1h", "strateji"), ("1h", "sistem")]
+
+
+async def backtest_suite(app: FastAPI, settings, delay_sec: int = 120) -> None:
+    """Doğrulama paketi: her (zaman dilimi, mod) için henüz yoksa bir backtest çalıştırır, sırayla.
+    15m için 30 gün, 1h için 90 gün; en likit 5 parite; kâr kilidi açık/kapalı karşılaştırmalı."""
     from app.backtesting.service import DEFAULT_BOTS, run_job
     from app.database.models import BacktestRun
     from sqlalchemy import select
     await asyncio.sleep(delay_sec)
-    symbols = [c["symbol"] for c in latest_candidates(5)]
-    with session_scope() as s:
-        if s.scalars(select(BacktestRun.id).limit(1)).first() or not symbols:
-            return
-        req = {"timeframe": "15m", "days": 30, "symbols": symbols, "mode": "strateji",
-               "compare_profit_lock": True, "bots": list(DEFAULT_BOTS["15m"]), "auto": True}
-        run = BacktestRun(params=req)
-        s.add(run)
-        s.flush()
-        rid = run.id
-    log.info("İlk doğrulama backtest'i başlatıldı #%s: %s", rid, symbols)
-    await run_job(rid, req, app.state.market, settings)
+    for tf, mode in BACKTEST_SUITE:
+        symbols = [c["symbol"] for c in latest_candidates(5)]
+        with session_scope() as s:
+            done = {(r.params.get("timeframe"), r.params.get("mode")) for r in s.scalars(select(BacktestRun))
+                    if r.status in ("BITTI", "CALISIYOR")}
+            if (tf, mode) in done or not symbols:
+                continue
+            req = {"timeframe": tf, "days": 30 if tf == "15m" else 90, "symbols": symbols, "mode": mode,
+                   "compare_profit_lock": True, "bots": list(DEFAULT_BOTS[tf]), "auto": True}
+            run = BacktestRun(params=req)
+            s.add(run)
+            s.flush()
+            rid = run.id
+        log.info("Doğrulama backtest'i başlatıldı #%s: %s %s %s", rid, tf, mode, symbols)
+        await run_job(rid, req, app.state.market, settings)
 
 
 @asynccontextmanager
@@ -129,7 +136,7 @@ async def lifespan(app: FastAPI):
     if app.state.monitor:
         tasks.append(asyncio.create_task(app.state.monitor.loop()))
     if settings.runner_enabled:
-        tasks.append(asyncio.create_task(first_backtest(app, settings)))
+        tasks.append(asyncio.create_task(backtest_suite(app, settings)))
     log.info("Başlatıldı: mod=%s borsa=%s demo=%s tarayıcı=%s bot_döngüsü=%s takvim=%s arbitraj=%s yürütme=%s",
              settings.mode.value, settings.exchange, settings.bybit_demo, settings.scanner_enabled,
              settings.runner_enabled, settings.calendar_enabled, settings.arbitrage_enabled,

@@ -155,6 +155,10 @@ class Backtester:
         bar = cs[i]
         o, h, l, c = float(bar.open), float(bar.high), float(bar.low), float(bar.close)
         for pos in [x for x in self.open if x.symbol == sym]:
+            # Zirve net kâr mum içi en lehte fiyattan izlenir (kapanıştan değil)
+            fav = h if pos.long else l
+            fav_net = (fav - pos.entry) * pos.qty * (1 if pos.long else -1) - pos.entry_fee - pos.qty * fav * self.p.fee_pct / 100
+            pos.peak_net_usd = max(pos.peak_net_usd, fav_net)
             stop_hit = (l <= pos.stop) if pos.long else (h >= pos.stop)
             tp_hit = (h >= pos.tp) if pos.long else (l <= pos.tp)
             if stop_hit:
