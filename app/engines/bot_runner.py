@@ -51,6 +51,7 @@ class RunReport:
     analyzed: int = 0
     data_problems: dict[str, str] = field(default_factory=dict)
     missing_derivatives: int = 0
+    footprint_bars: int = 0          # gerçek footprint ile analiz edilen sembol sayısı
     signals_new: int = 0
     signals_trade: int = 0
     decisions: dict[str, int] = field(default_factory=dict)
@@ -134,8 +135,9 @@ def save_decision(d: Decision) -> int | None:
 
 class BotRunner:
     def __init__(self, market: BybitPublic, settings: Settings,
-                 providers: dict[str, Callable[[], object]] | None = None, executor=None):
+                 providers: dict[str, Callable[[], object]] | None = None, executor=None, footprint=None):
         self.market = market
+        self.footprint = footprint        # FootprintCollector; None ise BOT01 footprint'i tahmine geçer
         self.executor = executor          # BOT09; None ise onaylı kararlar yalnız kaydedilir
         self.approved: list[tuple[int, Decision]] = []
         self.settings = settings
@@ -213,6 +215,12 @@ class BotRunner:
                     if len(d) < 5:
                         rep.missing_derivatives += 1
                     extra.update(d)
+                if self.footprint is not None and candles:
+                    last = candles[-1]
+                    fp = self.footprint.bar(sym, last.start_ms, last.start_ms + INTERVAL_MINUTES[last.interval] * 60_000)
+                    if fp:
+                        extra["footprint"] = fp
+                        rep.footprint_bars += 1
             ctx = MarketContext(symbol=sym, timeframe=tf, candles=candles, htf_candles=htf,
                                 spread_pct=float(c.get("spread_pct") or 0), allow_short=linear,
                                 taker_fee_pct=self.settings.taker_fee_pct, extra=extra)

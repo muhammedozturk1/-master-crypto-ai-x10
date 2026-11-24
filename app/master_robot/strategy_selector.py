@@ -10,7 +10,7 @@ from app.master_robot.market_regime import NO_NEW_TRADES, Regime
 
 TREND = {"trend_pullback", "donchian_breakout", "supertrend_momentum", "ema_rsi_trend"}
 BREAKOUT = {"nr7_breakout", "nr7_retest", "sr_breakout", "micro_breakout", "donchian_breakout"}
-REVERSION = {"bollinger_mean_reversion", "liquidity_sweep", "accumulation", "distribution"}
+REVERSION = {"footprint_absorption", "liquidity_sweep", "accumulation", "distribution"}
 SCALP = {"ema9_21_scalp", "vwap_reclaim", "micro_breakout"}
 
 

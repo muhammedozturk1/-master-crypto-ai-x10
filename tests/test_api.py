@@ -98,12 +98,18 @@ def test_login_cookie_grants_access(client):
 
 
 def test_panel_page_and_all_panel_endpoints(client):
+    from tests.fake_bybit import FakeBybit
+    import app.api.market as mk
+    app.state.market = FakeBybit().client()          # canlı fiyat ucu ağa çıkmasın
+    mk._LIVE_CACHE.update(t=0.0, data=None)
     html = client.get("/").text
     assert "MASTER CRYPTO AI X10" in html and "Content-Security-Policy" in client.get("/").headers
     import re
     paths = set(re.findall(r'api\("(/[a-z0-9/_?=]+)"\)', html))
     assert {"/health", "/portfolio", "/risk", "/master", "/bots", "/decisions?limit=25", "/nr7", "/calendar",
-            "/performance", "/backtest", "/runner"} <= paths
+            "/performance", "/backtest", "/runner", "/market/live", "/portfolio/history?hours=48",
+            "/signals?limit=150", "/positions?limit=30"} <= paths
+    assert 'id="web"' in html and 'id="mob"' in html and "tabbar" in html     # ayrı web ve mobil düzen
     for pth in paths:
         r = client.get(pth)
         assert r.status_code == 200, (pth, r.text[:200])

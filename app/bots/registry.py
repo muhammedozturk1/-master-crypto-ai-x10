@@ -29,7 +29,7 @@ class BotInfo:
 
 
 BOTS: tuple[BotInfo, ...] = (
-    BotInfo("BOT01", "Teknik analiz ve formasyon", "EMA/RSI trend devamı, Bollinger mean reversion, destek-direnç kırılımı, mum formasyonları", "signal", 3),
+    BotInfo("BOT01", "Teknik analiz ve formasyon", "EMA/RSI trend devamı, footprint emilim/tükenme + VAH/VAL/POC, destek-direnç kırılımı, mum formasyonları", "signal", 3),
     BotInfo("BOT02", "Trend ve momentum", "Trend pullback, Donchian breakout, Supertrend momentum, göreceli güç", "signal", 3),
     BotInfo("BOT03", "Scalping", "EMA 9/21, VWAP reclaim, mikro kırılım; maliyet sonrası beklenen değer yoksa pasif", "signal", 3),
     BotInfo("BOT04", "Arbitraj", "Borsalar arası ve üçgen arbitraj; 200 USD'de varsayılan gözlem modu", "signal", 3),

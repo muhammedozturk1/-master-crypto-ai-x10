@@ -157,3 +157,32 @@ def test_scan_endpoint(api):
     r = c.get("/market/scan").json()
     assert r["last_run_ok"] is True and r["selected"] == 3
     assert r["candidates"][0]["symbol"] == "BTCUSDT"
+
+
+def test_live_prices_endpoint(api):
+    import app.api.market as mk
+    mk._LIVE_CACHE.update(t=0.0, data=None)
+    c, _, _ = api
+    r = c.get("/market/live").json()
+    syms = [t["symbol"] for t in r["tickers"]]
+    assert syms[0] == "BTCUSDT" and len(syms) <= 8
+    t = r["tickers"][0]
+    assert float(t["price"]) > 0 and t["open_position"] is False and "change_24h_pct" in t
+
+
+def test_portfolio_history_endpoint(api):
+    from datetime import datetime, timedelta, timezone
+    from decimal import Decimal
+    from app.database.models import EquitySnapshot
+    from app.database.session import session_scope
+    c, _, _ = api
+    assert c.get("/portfolio/history").json() == []
+    now = datetime.now(timezone.utc)
+    with session_scope() as s:
+        for k, eq in enumerate(("200", "201.5", "199.2")):
+            s.add(EquitySnapshot(created_at=now - timedelta(hours=3 - k), equity=Decimal(eq), available=Decimal(eq), in_positions=Decimal(0),
+                                    unrealized_pnl=Decimal(0), peak_equity=Decimal("201.5")))
+        s.add(EquitySnapshot(created_at=now - timedelta(days=3), equity=Decimal("150"), available=Decimal("150"), in_positions=Decimal(0),
+                                unrealized_pnl=Decimal(0), peak_equity=Decimal("150")))
+    h = c.get("/portfolio/history", params={"hours": 24}).json()
+    assert [float(x["equity"]) for x in h] == [200.0, 201.5, 199.2]

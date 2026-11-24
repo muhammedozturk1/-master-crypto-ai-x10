@@ -142,7 +142,13 @@ async def lifespan(app: FastAPI):
                           if settings.telegram_bot_token and settings.telegram_chat_id else None)
     install(app.state.notifier)
     app.state.monitor = PositionMonitor(app.state.execution, settings.monitor_interval_sec) if app.state.execution else None
-    app.state.runner = BotRunner(app.state.market, settings, providers, app.state.execution) if settings.runner_enabled else None
+    from app.engines.footprint import FootprintCollector
+    app.state.footprint = FootprintCollector(
+        category=settings.market_type.value,
+        symbols_fn=lambda: [c["symbol"] for c in latest_candidates(settings.scan_top_n)],
+    ) if settings.runner_enabled and settings.footprint_enabled else None
+    app.state.runner = (BotRunner(app.state.market, settings, providers, app.state.execution, app.state.footprint)
+                        if settings.runner_enabled else None)
 
     tasks = []
     if settings.scanner_enabled:
@@ -151,6 +157,8 @@ async def lifespan(app: FastAPI):
         tasks.append(asyncio.create_task(app.state.calendar.loop()))
     if app.state.arbitrage:
         tasks.append(asyncio.create_task(app.state.arbitrage.loop()))
+    if app.state.footprint:
+        tasks.append(asyncio.create_task(app.state.footprint.loop()))
     if app.state.runner:
         tasks.append(asyncio.create_task(app.state.runner.loop()))
         tasks.append(asyncio.create_task(equity_loop(settings)))

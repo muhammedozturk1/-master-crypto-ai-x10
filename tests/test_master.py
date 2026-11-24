@@ -62,7 +62,7 @@ def test_abnormal_move():
 def test_strategy_weights():
     assert strategy_weight(Regime.GUCLU_YUKSELIS, "trend_pullback+adx25", True) == 1.3
     assert strategy_weight(Regime.GUCLU_YUKSELIS, "trend_pullback", False) == 0.0   # güçlü trende karşı yok
-    assert strategy_weight(Regime.YATAY, "bollinger_mean_reversion", True) == 1.3
+    assert strategy_weight(Regime.YATAY, "footprint_absorption", True) == 1.3
     assert strategy_weight(Regime.VOLATILITE_SIKISMASI, "nr7_breakout+ema", True) == 1.3
     assert strategy_weight(Regime.HABER_BELIRSIZLIGI, "nr7_breakout", True) == 0.0
 
@@ -92,15 +92,15 @@ def test_single_signal_is_not_enough_confluence_is():
 def test_conflict_rejected():
     c = ctx("flat")
     # İki yön eşit güçte → çelişki, işlem yok
-    d = decide(c, [sig("BOT01", "bollinger_mean_reversion", Action.AL, 80, vr=2.2),
+    d = decide(c, [sig("BOT01", "footprint_absorption", Action.AL, 80, vr=2.2),
                    sig("BOT02", "donchian_breakout", Action.AL, 80, vr=2.2),
-                   sig("BOT01", "bollinger_mean_reversion", Action.SAT, 80, vr=2.2),
+                   sig("BOT01", "footprint_absorption", Action.SAT, 80, vr=2.2),
                    sig("BOT02", "donchian_breakout", Action.SAT, 80, vr=2.2)], MarketInputs())
     assert d.outcome == "CELISKI"
     # Bir taraf belirgin güçlüyse çelişki değil, zayıf taraf kadar ceza
-    d = decide(c, [sig("BOT01", "bollinger_mean_reversion", Action.AL, 80, vr=2.2),
+    d = decide(c, [sig("BOT01", "footprint_absorption", Action.AL, 80, vr=2.2),
                    sig("BOT02", "donchian_breakout", Action.SAT, 80, vr=2.2),
-                   sig("BOT01", "bollinger_mean_reversion", Action.SAT, 80, vr=2.2)], MarketInputs())
+                   sig("BOT01", "footprint_absorption", Action.SAT, 80, vr=2.2)], MarketInputs())
     assert d.outcome != "CELISKI" and d.direction == "SHORT" and d.contributions["puanlar"]["celiski_cezasi"] < 0
 
 

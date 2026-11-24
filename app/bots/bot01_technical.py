@@ -2,8 +2,13 @@
 
   A  EMA + RSI trend devamı   : EMA200 üstü, EMA20>EMA50, EMA50 yükseliyor, RSI 45-65,
                                 MACD histogramı artıyor, destekten tepki, hacim doğrulaması
-  B  Bollinger mean reversion : yalnız yatay piyasada (ADX<20); bant dışından içeri kapanış,
-                                RSI aşırı bölgeden dönüş; hedef orta bant (net 1:2 sağlanmazsa yok)
+  B  Footprint emilim/tükenme + hacim profili (VAH/VAL/POC) — Bollinger dönüşünün yerine
+                                (backtest'te en zayıf stratejiydi: 15m −0,45R, 1h −0,47R):
+                                fiyat değer alanı kenarını (VAL/VAH) test eder; uçta agresif hacim
+                                emilir veya uçta hacim tükenir; kapanış değer alanı içinde → hedef POC.
+                                Gerçek footprint Bybit websocket işlem akışından gelir; mum tam
+                                dinlenmediyse (ve backtest'te) mum yapısından TAHMİN kullanılır ve
+                                sinyalde yazılır. ADX≥25 güçlü trendde çalışmaz.
   C  Destek/direnç kırılımı   : en az 2 temaslı seviyenin hacimli, uzun fitilsiz kapanışla kırılması;
                                 bir sonraki seviye hedefe engel olmamalı
   D  Mum formasyonları        : tek başına sinyal üretmez, A-C'nin güven puanını düzeltir
@@ -18,6 +23,8 @@ from app.indicators import core as I
 
 BOT_ID = "BOT01"
 MIN_BARS = 220
+STRATEGY = "footprint_absorption"
+VP_BARS = 96          # hacim profili penceresi: 15m'de 24 saat, 1h'de 4 gün
 
 
 class TechnicalBot(WorkerBot):
@@ -39,7 +46,7 @@ class TechnicalBot(WorkerBot):
         htf = htf_trend(ctx.htf_candles)
         pattern, pdir = candle_pattern(O, H, L, C, i)
         out = []
-        for fn in (self._ema_rsi, self._mean_reversion, self._sr_breakout):
+        for fn in (self._ema_rsi, self._footprint, self._sr_breakout):
             sig = fn(ctx, f, htf, pattern, pdir)
             if sig:
                 out.append(sig)
@@ -89,48 +96,95 @@ class TechnicalBot(WorkerBot):
                                warns, "TREND")
         return None
 
-    def _mean_reversion(self, ctx, f, htf, pattern, pdir) -> Signal | None:
-        i, C, O, L, H = f["i"], f["C"], f["O"], f["L"], f["H"]
-        if f["adx"][i] >= 20:
-            return None  # yalnız yatay piyasa rejimi
-        atr, mid, up, lo, rs = f["atr"][i], f["bb_mid"], f["bb_up"], f["bb_lo"], f["rsi"]
+    def _footprint(self, ctx, f, htf, pattern, pdir) -> Signal | None:
+        """Hacim profili kenarında (VAL/VAH) emilim veya tükenme → POC'a dönüş."""
+        i, C, O, L, H, V = f["i"], f["C"], f["O"], f["L"], f["H"], f["V"]
+        if f["adx"][i] >= 25:
+            return None  # güçlü trendde değer alanı kenarından dönüş işlemi yok
+        vp = I.volume_profile(H, L, V, i - VP_BARS, i)
+        if vp is None:
+            return None
+        poc, vah, val = vp
+        atr, rng = f["atr"][i], (H[i] - L[i]) or 1e-12
+        fp = ctx.extra.get("footprint")
+        if fp and not fp.get("levels"):
+            fp = None
+        est = [V[k] * ((C[k] - L[k]) - (H[k] - C[k])) / ((H[k] - L[k]) or 1e-12) for k in range(i - 5, i + 1)]
+        vr = volume_ratio(V, i)
         for long in (True, False):
             if long:
-                was_out = C[i - 1] < lo[i - 1] or L[i - 1] < lo[i - 1]
-                back_in = C[i] > lo[i] and C[i] > O[i]
-                oversold = rs[i - 1] < 30 or (rs[i - 1] < 35 and rs[i] > rs[i - 1])
-                strong_down = C[i] < f["e200"][i] and f["e50"][i] < f["e50"][i - 10] * 0.98
-                ok = was_out and back_in and oversold and not strong_down
-                stop = min(L[i - 1], L[i]) - 0.2 * atr
-                target = mid[i]
+                at_edge = L[i] <= val + 0.15 * atr and val <= C[i] < poc
+                strong_against = C[i] < f["e200"][i] and f["e50"][i] < f["e50"][i - 10] * 0.98
+                new_extreme = L[i] <= min(L[i - 5:i])
+                close_pos = (C[i] - L[i]) / rng
             else:
-                was_out = C[i - 1] > up[i - 1] or H[i - 1] > up[i - 1]
-                back_in = C[i] < up[i] and C[i] < O[i]
-                oversold = rs[i - 1] > 70 or (rs[i - 1] > 65 and rs[i] < rs[i - 1])
-                strong_up = C[i] > f["e200"][i] and f["e50"][i] > f["e50"][i - 10] * 1.02
-                ok = was_out and back_in and oversold and not strong_up
-                stop = max(H[i - 1], H[i]) + 0.2 * atr
-                target = mid[i]
-            if not ok:
+                at_edge = H[i] >= vah - 0.15 * atr and poc < C[i] <= vah
+                strong_against = C[i] > f["e200"][i] and f["e50"][i] > f["e50"][i - 10] * 1.02
+                new_extreme = H[i] >= max(H[i - 5:i])
+                close_pos = (H[i] - C[i]) / rng
+            if not at_edge or strong_against:
                 continue
-            # Orta bant 1:2 vermiyorsa, uygun koşulda karşı banda kadar izin ver
+            if fp:
+                absorption, exhaustion, fpd = self._fp_read(fp, long, L[i], H[i], close_pos)
+                source = "gerçek footprint (Bybit işlem akışı)"
+            else:
+                # Tahmini: hacimli, uzun fitilli, kapanışı ters tarafta mum (emilim); yeni uç ama
+                # tahmini delta bir önceki uca göre zayıf (tükenme)
+                absorption = vr >= 1.5 and close_pos >= 0.6
+                prev = est[:-1]
+                exhaustion = new_extreme and close_pos >= 0.5 and (
+                    est[-1] > min(prev) if long else est[-1] < max(prev))
+                fpd = {"tahmini_delta": round(est[-1], 4)}
+                source = "tahmini (mum yapısından; işlem akışı yok)"
+            if not (absorption or exhaustion):
+                continue
+            stop = L[i] - 0.25 * atr if long else H[i] + 0.25 * atr
             cost = ctx.cost_per_unit(C[i])
             needed = target_for(C[i], stop, cost, long)
-            far = up[i] if long else lo[i]
-            if (long and needed > target) or (not long and needed < target):
-                if (long and needed <= far) or (not long and needed >= far):
+            target = poc
+            if (long and needed > poc) or (not long and needed < poc):
+                if (long and needed <= vah) or (not long and needed >= val):
                     target = needed
                 else:
                     continue
             tags, warns = [], []
-            score = self._adjust(55, long, htf, pattern, pdir, tags, warns)
-            return make_signal(ctx, BOT_ID, "bollinger_mean_reversion" + "".join(f"+{t}" for t in tags),
+            if absorption:
+                tags.append("emilim")
+            if exhaustion:
+                tags.append("tukenme")
+            score = 55 + (8 if absorption and exhaustion else 0) + (7 if fp else 0)
+            score = self._adjust(score, long, htf, pattern, pdir, tags, warns)
+            if not fp:
+                warns.append("footprint tahmini: mum boyunca işlem akışı dinlenmedi")
+            edge = "VAL" if long else "VAH"
+            what = " ve ".join(x for x, ok in (("emilim", absorption), ("tükenme", exhaustion)) if ok)
+            return make_signal(ctx, BOT_ID, STRATEGY + "".join(f"+{t}" for t in tags),
                                Plan(long, C[i], C[i], stop, target), score,
-                               f"Yatay piyasa (ADX {f['adx'][i]:.1f}); fiyat {'alt' if long else 'üst'} Bollinger bandı "
-                               f"dışından içeri kapandı, RSI {rs[i]:.1f}",
-                               {"adx": f["adx"][i], "rsi": rs[i], "bb_mid": mid[i], "pattern": pattern, "htf_trend": htf},
-                               warns, "YATAY")
+                               f"Fiyat değer alanı {'altı' if long else 'üstü'} ({edge} {val if long else vah:.6g}) test edildi, "
+                               f"{what} görüldü; hedef POC {poc:.6g}. Kaynak: {source}",
+                               {"poc": poc, "vah": vah, "val": val, "absorption": absorption, "exhaustion": exhaustion,
+                                "footprint_source": "gercek" if fp else "tahmini", "volume_ratio": round(vr, 2),
+                                "pattern": pattern, "htf_trend": htf, **fpd}, warns, "YATAY")
         return None
+
+    @staticmethod
+    def _fp_read(fp: dict, long: bool, low: float, high: float, close_pos: float) -> tuple[bool, bool, dict]:
+        """Gerçek footprint okuması.
+        Emilim : mumun uç %30'luk bölgesinde agresif (ters yönlü) hacim karşı tarafın 1,5 katı,
+                 buna rağmen fiyat o bölgede kalmadı (kapanış mumun öbür yarısında).
+        Tükenme: en uç fiyat seviyesindeki hacim, seviye başına ortalamanın %35'inden az
+                 (agresif taraf uca vardığında alıcı/satıcı kalmamış)."""
+        lv = fp["levels"]
+        rng = (high - low) or 1e-12
+        zone = [x for x in lv if (x[0] - low) / rng <= 0.30] if long else [x for x in lv if (high - x[0]) / rng <= 0.30]
+        aggressive = sum(x[2] if long else x[1] for x in zone)       # longda: dipte satış baskısı
+        passive_side = sum(x[1] if long else x[2] for x in zone)
+        absorption = bool(zone) and aggressive >= 1.5 * max(passive_side, 1e-12) and close_pos >= 0.5
+        extreme = lv[0] if long else lv[-1]
+        avg = fp["volume"] / len(lv) if lv else 0
+        exhaustion = len(lv) >= 4 and (extreme[1] + extreme[2]) <= 0.35 * avg
+        return absorption, exhaustion, {"delta_usdt": round(fp["delta"], 2), "uc_bolge_agresif": round(aggressive, 2),
+                                        "uc_bolge_karsi": round(passive_side, 2), "fp_seviye": len(lv)}
 
     def _sr_breakout(self, ctx, f, htf, pattern, pdir) -> Signal | None:
         i, C, O, H, L, V = f["i"], f["C"], f["O"], f["H"], f["L"], f["V"]

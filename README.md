@@ -49,8 +49,11 @@ kapanmış mumun kanalı, hacim ≥1,3x, MACD onayı, 1 ATR'den geç değil), Su
 puan düzeltmesi yapar.
 
 **BOT01 – Teknik analiz:** EMA+RSI trend devamı (EMA dizilimi, RSI 45-65, MACD histogramı
-artıyor, EMA20'den tepki, hacim ≥1,2x), Bollinger mean reversion (yalnız ADX<20; bant
-dışından içeri kapanış ve RSI dönüşü; hedef orta bant, net 1:2 vermiyorsa sinyal yok),
+artıyor, EMA20'den tepki, hacim ≥1,2x), footprint emilim/tükenme + hacim profili (Bollinger
+dönüşünün yerine; değer alanı kenarı VAL/VAH test edilir, uçta agresif hacim emilir veya hacim
+tükenir, kapanış değer alanı içinde → hedef POC; ADX≥25 trendde çalışmaz). Gerçek footprint
+Bybit websocket işlem akışından seviye başına alış/satış hacmidir; mum tamamen dinlenmediyse ve
+backtest'te mum yapısından tahmin kullanılır ve sinyalde yazılır,
 destek/direnç kırılımı (en az 2 temaslı seviye, hacim ≥1,5x, uzun fitil yok, hedefin
 önünde başka seviye yok). Mum formasyonları tek başına sinyal üretmez, puanı düzeltir.
 

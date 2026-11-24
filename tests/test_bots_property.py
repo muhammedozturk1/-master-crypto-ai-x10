@@ -62,7 +62,7 @@ def test_dedup_keys_unique_per_bar(all_signals):
 def test_strategy_coverage(all_signals):
     seen = {s.strategy_id.split("+")[0] for s in all_signals}
     for strat in ("nr7_breakout", "nr7_retest", "trend_pullback", "donchian_breakout",
-                  "ema_rsi_trend", "sr_breakout", "bollinger_mean_reversion"):
+                  "ema_rsi_trend", "sr_breakout", "footprint_absorption"):
         assert strat in seen, strat
 
 

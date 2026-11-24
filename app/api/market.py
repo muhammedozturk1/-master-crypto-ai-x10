@@ -57,3 +57,36 @@ async def candles(symbol: str, timeframe: str = Query("15m"), limit: int = Query
         "data_quality": quality, "problem": problem,
         "candles": [c.to_dict() for c in closed[-limit:]],
     }
+
+
+_LIVE_CACHE: dict = {"t": 0.0, "data": None}
+
+
+@router.get("/live")
+async def live_prices(market: BybitPublic = Depends(get_market), session: Session = Depends(get_session)) -> dict:
+    """Panel için canlı fiyatlar: BTC, tarayıcının ilk 5 adayı ve açık pozisyonlar. 3 sn önbellek
+    (birden çok panel açık olsa da Bybit'e en fazla 3 saniyede bir istek gider)."""
+    import time
+    from app.database.models import Position
+    now = time.monotonic()
+    if _LIVE_CACHE["data"] is None or now - _LIVE_CACHE["t"] > 3:
+        try:
+            ticks = await market.tickers()
+        except BybitError as exc:
+            raise HTTPException(502, f"Bybit verisi alınamadı: {exc}") from exc
+        _LIVE_CACHE.update(t=now, data={t.symbol: t for t in ticks})
+    book = _LIVE_CACHE["data"]
+    snap = session.scalars(select(ScanSnapshot).where(ScanSnapshot.ok.is_(True)).order_by(ScanSnapshot.id.desc()).limit(1)).first()
+    cands = [c["symbol"] for c in (snap.result.get("candidates", []) if snap else [])][:5]
+    open_syms = [p.symbol for p in session.scalars(select(Position).where(Position.status != "KAPALI"))]
+    wanted = list(dict.fromkeys(["BTCUSDT", *open_syms, *cands]))[:8]
+    out = []
+    for s in wanted:
+        t = book.get(s)
+        if t is None:
+            continue
+        out.append({"symbol": s, "price": str(t.last_price), "bid": str(t.bid), "ask": str(t.ask),
+                    "change_24h_pct": str(t.change_24h_pct.quantize(t.change_24h_pct.__class__("0.01"))),
+                    "funding": str(t.funding_rate) if t.funding_rate is not None else None,
+                    "open_position": s in open_syms})
+    return {"at": time.time(), "tickers": out}

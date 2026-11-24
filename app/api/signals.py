@@ -77,7 +77,9 @@ def runner_status(request: Request) -> dict:
     runner = getattr(request.app.state, "runner", None)
     if runner is None:
         return {"enabled": False}
-    return {"enabled": True, "last_runs": {tf: asdict(r) for tf, r in runner.reports.items()}}
+    fp = getattr(runner, "footprint", None)
+    return {"enabled": True, "last_runs": {tf: asdict(r) for tf, r in runner.reports.items()},
+            "footprint": fp.status() if fp else {"enabled": False}}
 
 
 @router.get("/calendar")
@@ -254,3 +256,12 @@ def protection_history(position_id: int, session: Session = Depends(get_session)
                      "state": STATE_NAMES.get(r.lock_state, r.lock_state), "reason": r.reason} for r in rows],
         "note": "Gerçekleşmemiş kâr garanti değildir; kayma ve fiyat boşlukları korunan tutarı değiştirebilir.",
     }
+
+
+@router.get("/portfolio/history")
+def portfolio_history(hours: int = Query(24, ge=1, le=720), session: Session = Depends(get_session)) -> list[dict]:
+    """Özkaynak eğrisi (BOT08 5 dakikalık anlık görüntüleri)."""
+    from app.database.models import EquitySnapshot
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    rows = session.scalars(select(EquitySnapshot).where(EquitySnapshot.created_at >= since).order_by(EquitySnapshot.id))
+    return [{"t": r.created_at.isoformat(), "equity": str(r.equity), "peak": str(r.peak_equity)} for r in rows]

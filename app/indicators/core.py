@@ -264,3 +264,40 @@ def stoch_rsi(closes: Sequence[float], period: int = 14, k: int = 3) -> Series:
         for j, v in enumerate(sm):
             out[start + j] = v
     return out
+
+
+def volume_profile(highs: list[float], lows: list[float], volumes: list[float], start: int, end: int,
+                   bins: int = 48, value_area: float = 0.70) -> tuple[float, float, float] | None:
+    """[start, end) mumlarının hacim profili → (POC, VAH, VAL).
+
+    Her mumun hacmi, kapsadığı fiyat aralığına eşit dağıtılır (mum içi işlem verisi yoksa
+    standart yaklaşım). POC en yüksek hacimli fiyat bölmesinin ortası; değer alanı POC'tan
+    başlayıp hacmi büyük olan komşu bölme eklenerek toplam hacmin %70'ine ulaşana dek genişler."""
+    start = max(0, start)
+    if end - start < 10:
+        return None
+    lo, hi = min(lows[start:end]), max(highs[start:end])
+    if hi <= lo:
+        return None
+    width = (hi - lo) / bins
+    prof = [0.0] * bins
+    for k in range(start, end):
+        a = min(bins - 1, int((lows[k] - lo) / width))
+        b = min(bins - 1, int((highs[k] - lo) / width))
+        share = volumes[k] / (b - a + 1)
+        for j in range(a, b + 1):
+            prof[j] += share
+    total = sum(prof)
+    if total <= 0:
+        return None
+    poc = max(range(bins), key=lambda j: prof[j])
+    a = b = poc
+    acc = prof[poc]
+    while acc < value_area * total and (a > 0 or b < bins - 1):
+        down = prof[a - 1] if a > 0 else -1.0
+        up = prof[b + 1] if b < bins - 1 else -1.0
+        if up >= down:
+            b += 1; acc += up
+        else:
+            a -= 1; acc += down
+    return lo + (poc + 0.5) * width, lo + (b + 1) * width, lo + a * width

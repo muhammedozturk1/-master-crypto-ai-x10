@@ -156,6 +156,7 @@ class Settings(BaseSettings):
     execution_enabled: bool = True     # onaylanan kararları uygula (anahtar yoksa simülasyon)
     monitor_interval_sec: int = Field(default=15, ge=5)
     arbitrage_enabled: bool = True
+    footprint_enabled: bool = True   # websocket işlem akışı (BOT01 footprint stratejisi)
     runner_concurrency: int = Field(default=4, ge=1, le=10)
     taker_fee_pct: float = 0.055  # Bybit USDT perpetual taker komisyonu (tek yön, %)
 
