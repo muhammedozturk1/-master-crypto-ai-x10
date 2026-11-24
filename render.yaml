@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: master-crypto-ai-x10
+    runtime: python
+    plan: starter
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: MODE
+        value: PAPER
+      - key: BYBIT_DEMO
+        value: "true"
+      - key: MARKET_TYPE
+        value: linear
+      - key: DATABASE_URL
+        fromDatabase:
+          name: x10-db
+          property: connectionString
+      - key: DASHBOARD_TOKEN
+        generateValue: true
+      - key: BYBIT_API_KEY
+        sync: false
+      - key: BYBIT_API_SECRET
+        sync: false
+
+databases:
+  - name: x10-db
+    plan: basic-256mb
+    region: frankfurt

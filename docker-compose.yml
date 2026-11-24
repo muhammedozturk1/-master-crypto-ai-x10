@@ -1,0 +1,22 @@
+services:
+  app:
+    build: .
+    env_file: .env
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://x10:x10@db:5432/x10
+    depends_on:
+      - db
+    restart: unless-stopped
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: x10
+      POSTGRES_PASSWORD: x10
+      POSTGRES_DB: x10
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+volumes:
+  pgdata:
