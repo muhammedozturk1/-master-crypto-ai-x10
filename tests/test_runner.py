@@ -37,7 +37,7 @@ def nr7_breakout_rows(symbol, interval, limit):
 @pytest.fixture
 def env(tmp_path):
     settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/r.db",
-                        scanner_enabled=False, runner_enabled=False, calendar_enabled=False, arbitrage_enabled=False, runner_timeframes=["15m"])
+                        scanner_enabled=False, runner_enabled=False, calendar_enabled=False, arbitrage_enabled=False, execution_enabled=False, runner_timeframes=["15m"])
     dbs.configure(settings.sqlalchemy_url)
     dbs.init_db()
     return settings
@@ -120,7 +120,7 @@ def test_signals_and_nr7_endpoints(tmp_path, monkeypatch):
     from app.config import get_settings
     from app.main import app
     settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/e.db", scanner_enabled=False,
-                        runner_enabled=False, calendar_enabled=False, arbitrage_enabled=False, runner_timeframes=["15m"])
+                        runner_enabled=False, calendar_enabled=False, arbitrage_enabled=False, execution_enabled=False, runner_timeframes=["15m"])
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     app.dependency_overrides[get_settings] = lambda: settings
     app.state.market = FakeBybit(kline_rows=nr7_breakout_rows).client()

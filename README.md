@@ -15,8 +15,8 @@ Varsayılan mod **PAPER** (Bybit demo hesabı). Canlı mod iki ayrı açık onay
 | 3 | 10 botun stratejileri | Tamamlandı (sinyal botları; BOT07-09 Aşama 5-6'da) |
 | 4 | Ana robot karar motoru | Tamamlandı |
 | 5 | Risk ve sermaye | Tamamlandı |
-| 6 | Emir ve pozisyon yönetimi | Sırada |
-| 7 | Kâr koruma kilidi | Bekliyor |
+| 6 | Emir ve pozisyon yönetimi | Tamamlandı |
+| 7 | Kâr koruma kilidi | Sırada |
 | 8 | Backtest ve paper trading | Bekliyor |
 | 9 | Panel ve Telegram | Bekliyor |
 | 10 | Testler ve güvenlik incelemesi | Bekliyor |
@@ -130,6 +130,28 @@ gerçekleşmemiş net K/Z, komisyon, zirve özkaynak, düşüş, günlük/haftal
 kayıp. Kapanan işlemin net kârı kasaya eklenir (bileşik). 5 dakikada bir kasa anlık görüntüsü
 alınır.
 
+## Emir ve pozisyon yönetimi (Aşama 6, BOT09)
+
+BOT07'nin onayladığı kararlar uygulanır. **Yürütme ortamı:** `BYBIT_API_KEY` ve
+`BYBIT_API_SECRET` varsa Bybit demo hesabı (`BYBIT_DEMO=true`), yoksa gerçek Bybit
+fiyatlarıyla simülasyon. Açılışta anahtar bakiye sorgusuyla doğrulanır; geçersizse emir katmanı
+kapanır, simülasyona düşülmez. Canlı modda anahtar yoksa hiçbir şey çalışmaz. Pozisyon boyutu
+borsadaki bakiyeye değil, sistemin kendi 200 USD kasasına göre hesaplanır.
+
+Açılış: güncel fiyat, kayma (stop mesafesinin %25'i) ve net 1:2 yeniden kontrol → benzersiz
+emir kimliği (`x10-<karar>-E`) gönderimden önce kaydedilir → piyasa emri, stop-loss (mark
+fiyat) ve hedef emirle birlikte borsa tarafına eklenir → gerçekleşme sorgulanır → gerçek
+giriş fiyatı kaydedilir → stop borsada doğrulanır, yoksa yeniden kurulur; kurulamazsa pozisyon
+kapatılır ve güvenli mod.
+
+Güvenlik: aynı karar için ikinci emir gönderilmez; zaman aşımında emir tekrar gönderilmez,
+durumu sorgulanır; doğrulanamayan emir veya borsada kayıtsız pozisyon güvenli moda alır.
+
+İzleme (15 sn): anlık fiyat ve net K/Z; borsada stop/hedefle kapanan pozisyonun net K/Z'si
+kendi hesabımızla (çıkış−giriş farkı − açılış ve kapanış komisyonu) kaydedilir, Bybit'in
+`closedPnl` değeri karşılaştırma için saklanır. Simülasyonda stop ve hedef 1 dakikalık mum
+uçlarıyla tetiklenir; aynı mumda ikisi de görülürse önce stop, boşluklu açılışta açılış fiyatı.
+
 ## Seçilen çalışma biçimi
 
 - Şartnamedeki 10 bot ve risk kuralları.
@@ -190,6 +212,9 @@ Bybit API anahtarına **para çekme yetkisi vermeyin**.
 | `GET /decisions` | Ana robot kararları (`outcome=REDDEDILDI` gibi filtrelerle) |
 | `GET /portfolio` | BOT08 kasa durumu |
 | `GET /risk` | BOT07 limitleri, kullanım ve yeni işlemi engelleyen nedenler |
+| `GET /positions` | Açık ve kapanmış pozisyonlar (`status=ACIK`) |
+| `GET /orders` | Emir kayıtları |
+| `POST /positions/{id}/close` | Elle kapatma, `confirm: true` ve token ister |
 | `GET /master` | Ana robot özeti: son karar, 24 saatlik dağılım, veto ve bot ağırlıkları |
 
 Yazma uçları `X-Dashboard-Token` başlığı ister.

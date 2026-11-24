@@ -21,6 +21,29 @@ from app.engines.scanner_service import scanner_loop
 from app.bots.bot08_portfolio import account_state, record_snapshot
 from app.database.session import session_scope
 from app.exchange.bybit_public import BybitPublic
+from app.bots.bot09_execution import ExecutionService
+from app.config import TradingMode
+from app.engines.position_monitor import PositionMonitor
+from app.exchange.bybit_private import BybitPrivate
+from app.execution.brokers import BybitBroker, SimBroker
+from decimal import Decimal
+
+
+def build_executor(settings, market):
+    """Anahtar varsa Bybit (demo veya canlı), yoksa gerçek fiyatlı simülasyon.
+    Canlı modda anahtar yoksa hiçbir şey çalıştırılmaz (simülasyon canlı yerine geçmez)."""
+    if not settings.execution_enabled:
+        return None
+    fee = Decimal(str(settings.taker_fee_pct))
+    if settings.bybit_api_key and settings.bybit_api_secret:
+        priv = BybitPrivate(settings.bybit_api_key, settings.bybit_api_secret, settings.bybit_rest_url,
+                            settings.market_type.value)
+        venue = "BYBIT_DEMO" if settings.bybit_demo else "BYBIT"
+        return ExecutionService(BybitBroker(priv, market, venue, fee), settings)
+    if settings.mode == TradingMode.AUTONOMOUS_LIVE:
+        log.error("Canlı modda API anahtarı yok: emir katmanı kapalı")
+        return None
+    return ExecutionService(SimBroker(market, fee), settings)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("x10")
@@ -52,7 +75,22 @@ async def lifespan(app: FastAPI):
         providers["calendar"] = lambda: app.state.calendar.state
     if app.state.arbitrage:
         providers["arbitrage"] = lambda: app.state.arbitrage.state
-    app.state.runner = BotRunner(app.state.market, settings, providers) if settings.runner_enabled else None
+    app.state.execution = build_executor(settings, app.state.market)
+    if app.state.execution and hasattr(app.state.execution.b, "p"):
+        # Anahtarı doğrula: geçersizse simülasyona DÜŞÜLMEZ, emir katmanı kapatılır
+        try:
+            bal = await app.state.execution.b.p.wallet_balance()
+            log.info("Bybit %s bağlantısı doğrulandı: toplam özkaynak %s USD (sistem kendi 200 USD kasasıyla boyutlar)",
+                     app.state.execution.venue, bal.get("total_equity"))
+        except Exception as exc:  # noqa: BLE001
+            log.error("Bybit API anahtarı doğrulanamadı, emir katmanı KAPALI: %s", exc)
+            with session_scope() as s:
+                from app.database.models import AuditLog
+                s.add(AuditLog(event="anahtar_dogrulanamadi", actor="BOT09", detail={"error": str(exc)[:300]}))
+            await app.state.execution.b.p.close()
+            app.state.execution = None
+    app.state.monitor = PositionMonitor(app.state.execution, settings.monitor_interval_sec) if app.state.execution else None
+    app.state.runner = BotRunner(app.state.market, settings, providers, app.state.execution) if settings.runner_enabled else None
 
     tasks = []
     if settings.scanner_enabled:
@@ -64,9 +102,12 @@ async def lifespan(app: FastAPI):
     if app.state.runner:
         tasks.append(asyncio.create_task(app.state.runner.loop()))
         tasks.append(asyncio.create_task(equity_loop(settings)))
-    log.info("Başlatıldı: mod=%s borsa=%s demo=%s tarayıcı=%s bot_döngüsü=%s takvim=%s arbitraj=%s",
+    if app.state.monitor:
+        tasks.append(asyncio.create_task(app.state.monitor.loop()))
+    log.info("Başlatıldı: mod=%s borsa=%s demo=%s tarayıcı=%s bot_döngüsü=%s takvim=%s arbitraj=%s yürütme=%s",
              settings.mode.value, settings.exchange, settings.bybit_demo, settings.scanner_enabled,
-             settings.runner_enabled, settings.calendar_enabled, settings.arbitrage_enabled)
+             settings.runner_enabled, settings.calendar_enabled, settings.arbitrage_enabled,
+             app.state.execution.venue if app.state.execution else "kapalı")
     yield
     for t in tasks:
         t.cancel()
@@ -76,7 +117,10 @@ async def lifespan(app: FastAPI):
         if svc:
             await svc.close()
     await app.state.market.close()
+    if app.state.execution and hasattr(app.state.execution.b, "p"):
+        await app.state.execution.b.p.close()
     app.state.market = app.state.runner = app.state.calendar = app.state.arbitrage = None
+    app.state.execution = app.state.monitor = None
     log.info("Durduruldu")
 
 

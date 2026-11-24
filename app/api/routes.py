@@ -5,7 +5,7 @@ from __future__ import annotations
 import hmac
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -136,3 +136,19 @@ def resume(body: Resume, session: Session = Depends(get_session)) -> dict:
 def audit(limit: int = 50, session: Session = Depends(get_session)) -> list[dict]:
     rows = session.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(min(limit, 200)))
     return [{"event": r.event, "actor": r.actor, "detail": r.detail, "at": r.created_at.isoformat()} for r in rows]
+
+
+class ClosePosition(BaseModel):
+    confirm: bool
+    reason: str = Field(default="elle kapatma", max_length=200)
+
+
+@router.post("/positions/{position_id}/close", dependencies=[Depends(require_admin)])
+async def close_position(position_id: int, body: ClosePosition, request: Request) -> dict:
+    """Manuel pozisyon kapatma (şartname 21.6). Onay ve erişim anahtarı ister."""
+    if not body.confirm:
+        raise HTTPException(400, "Kapatma için confirm=true gerekir")
+    ex = getattr(request.app.state, "execution", None)
+    if ex is None:
+        raise HTTPException(503, "Emir katmanı devre dışı")
+    return await ex.close_position(position_id, body.reason)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
@@ -196,3 +197,41 @@ def risk_status(session: Session = Depends(get_session)) -> dict:
                    "safe_mode": sysst.safe_mode if sysst else None,
                    "safe_mode_reason": sysst.safe_mode_reason if sysst else None},
     }
+
+
+@router.get("/positions")
+def positions(status: str | None = None, limit: int = Query(50, ge=1, le=500),
+              session: Session = Depends(get_session)) -> list[dict]:
+    """Açık pozisyon ekranı (şartname 21.4) ve kapanmış pozisyonlar."""
+    from app.database.models import Position
+    q = select(Position).order_by(Position.id.desc()).limit(limit)
+    if status:
+        q = q.where(Position.status == status.upper())
+    out = []
+    for p in session.scalars(q):
+        out.append({
+            "id": p.id, "decision_id": p.decision_id, "venue": p.venue, "mode": p.mode, "symbol": p.symbol,
+            "side": p.side, "strategy": p.strategy_id, "qty": str(p.qty), "leverage": p.leverage,
+            "notional_usd": str((p.qty * p.entry_price).quantize(Decimal("0.01"))),
+            "entry_price": str(p.entry_price), "last_price": str(p.last_price) if p.last_price is not None else None,
+            "initial_stop": str(p.initial_stop), "current_stop": str(p.current_stop),
+            "take_profit": str(p.take_profit) if p.take_profit is not None else None,
+            "unrealized_net_pnl": str(p.unrealized_net_pnl) if p.unrealized_net_pnl is not None else None,
+            "realized_net_pnl": str(p.realized_net_pnl) if p.realized_net_pnl is not None else None,
+            "fees": str(p.entry_fee + p.exit_fee), "risk_usd": str(p.risk_usd) if p.risk_usd is not None else None,
+            "lock_state": p.lock_state, "status": p.status,
+            "opened_at": p.opened_at.isoformat(), "closed_at": p.closed_at.isoformat() if p.closed_at else None,
+            "duration_min": int(((p.closed_at or datetime.now(timezone.utc)) - (p.opened_at if p.opened_at.tzinfo else p.opened_at.replace(tzinfo=timezone.utc))).total_seconds() // 60),
+        })
+    return out
+
+
+@router.get("/orders")
+def orders(limit: int = Query(50, ge=1, le=500), session: Session = Depends(get_session)) -> list[dict]:
+    from app.database.models import Order
+    return [{"id": o.id, "client_order_id": o.client_order_id, "exchange_order_id": o.exchange_order_id,
+             "position_id": o.position_id, "symbol": o.symbol, "side": o.side, "purpose": o.purpose,
+             "qty": str(o.qty), "filled_qty": str(o.filled_qty),
+             "avg_fill_price": str(o.avg_fill_price) if o.avg_fill_price is not None else None,
+             "status": o.status, "created_at": o.created_at.isoformat()}
+            for o in session.scalars(select(Order).order_by(Order.id.desc()).limit(limit))]

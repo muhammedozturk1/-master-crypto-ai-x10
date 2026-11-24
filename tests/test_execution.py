@@ -1,0 +1,246 @@
+"""Aşama 6: BOT09 emir açma süreci, güvenlik kuralları, pozisyon izleme ve uzlaştırma."""
+
+import asyncio
+from datetime import datetime, timezone
+from decimal import Decimal as D
+
+import httpx
+import pytest
+
+from app.bots.bot09_execution import ExecutionService
+from app.config import Settings
+from app.data.candles import Candle
+from app.database import session as dbs
+from app.database.models import AuditLog, Decision, Order, Position, SystemState
+from app.engines.position_monitor import PositionMonitor
+from app.exchange.bybit_private import sign
+from app.execution.brokers import BybitBroker, SimBroker
+from tests.fake_bybit import FakeBybit
+from tests.fake_bybit_private import FakeBybitPrivate
+
+PLAN = {"strategy": "nr7_breakout", "bot_id": "BOT10", "entry_low": "99.5", "entry_high": "100",
+        "stop_loss": "98", "take_profit": "105", "estimated_cost_pct": "0.12", "qty": "0.5", "risk_usd": "1.06"}
+
+
+@pytest.fixture
+def settings(tmp_path):
+    s = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/x.db")
+    dbs.configure(s.sqlalchemy_url)
+    dbs.init_db()
+    with dbs.session_scope() as ss:
+        for i in (1, 2, 3):
+            ss.add(Decision(id=i, symbol="BTCUSDT", outcome="ONAYLANDI", score=80, reason="t", contributions={}))
+    return s
+
+
+def run(coro):
+    return asyncio.run(coro)
+
+
+def bybit_exec(settings, fake, price="100"):
+    public = FakeBybit(kline_rows=lambda s, i, n: flat_rows(price, n)).client()
+    broker = BybitBroker(fake.client(), public, "BYBIT_DEMO", D("0.055"))
+    return ExecutionService(broker, settings, poll_attempts=2, poll_delay=0)
+
+
+def flat_rows(price, n, start_ms=None):
+    import time
+    now = int(time.time() * 1000) if start_ms is None else start_ms
+    step = 60_000
+    base = now - now % step
+    return [[str(base - k * step), price, price, price, price, "1", "0"] for k in range(n)]
+
+
+def system():
+    with dbs.session_scope() as s:
+        st = s.get(SystemState, 1)
+        return st.trading_enabled, st.safe_mode, st.safe_mode_reason
+
+
+def test_signature_checked_by_server():
+    import hashlib, hmac
+    assert sign("s", "p") == hmac.new(b"s", b"p", hashlib.sha256).hexdigest()
+    from app.exchange.bybit_private import BybitPrivate
+    fake = FakeBybitPrivate()
+    good = fake.client()
+    bad = BybitPrivate("test-key", "yanlis", "https://api-demo.bybit.com",
+                       client=httpx.AsyncClient(base_url="https://api-demo.bybit.com",
+                                                transport=httpx.MockTransport(fake.handler)))
+    run(good.wallet_balance())
+    assert fake.bad_signatures == 0
+    run(bad.wallet_balance())
+    assert fake.bad_signatures == 1
+
+
+def test_open_happy_path_with_exchange_side_stop(settings):
+    fake = FakeBybitPrivate(fill_price="100.1")
+    ex = bybit_exec(settings, fake, price="100")
+    r = run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    assert r["status"] == "DOLDU" and fake.bad_signatures == 0
+    create = next(p for path, p in fake.calls if path == "/v5/order/create")
+    assert create["stopLoss"] == "98" and create["takeProfit"] == "105" and create["orderLinkId"] == "x10-1-E"
+    assert create["slTriggerBy"] == "MarkPrice" and create["side"] == "Buy"
+    with dbs.session_scope() as s:
+        p = s.query(Position).one()
+        assert p.venue == "BYBIT_DEMO" and p.entry_price == D("100.1") and p.current_stop == D("98")
+        assert s.query(Order).one().status == "DOLDU"
+
+
+def test_same_decision_never_sends_twice(settings):
+    fake = FakeBybitPrivate()
+    ex = bybit_exec(settings, fake)
+    run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    r = run(ex.open_from_decision(1, "ETHUSDT", "LONG", PLAN))  # aynı karar kimliği
+    assert r["status"] == "ATLANDI" and fake.count("/v5/order/create") == 1
+
+
+def test_timeout_queries_status_instead_of_resending(settings):
+    fake = FakeBybitPrivate(timeout_on_create=True)
+    r = run(bybit_exec(settings, fake).open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    assert fake.count("/v5/order/create") == 1          # tekrar gönderilmedi
+    assert fake.count("/v5/order/realtime") >= 1         # durum sorgulandı
+    assert r["status"] == "DOLDU"
+    with dbs.session_scope() as s:
+        assert s.query(AuditLog).filter_by(event="emir_zaman_asimi").count() == 1
+
+
+def test_unverifiable_order_triggers_safe_mode(settings):
+    fake = FakeBybitPrivate(timeout_on_create=True, lose_order=True)
+    r = run(bybit_exec(settings, fake).open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    assert r["status"] == "BILINMIYOR"
+    enabled, safe, reason = system()
+    assert not enabled and safe and "doğrulanamadı" in reason
+
+
+def test_missing_stop_closes_position_and_safe_mode(settings):
+    fake = FakeBybitPrivate(stop_supported=False, trading_stop_fails=True)
+    r = run(bybit_exec(settings, fake).open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    assert r["status"] == "KAPATILDI"
+    assert "BTCUSDT" not in fake.positions               # reduce-only ile kapatıldı
+    assert any(p.get("reduceOnly") for path, p in fake.calls if path == "/v5/order/create")
+    assert system()[1] is True
+
+
+def test_price_ran_away_no_order(settings):
+    fake = FakeBybitPrivate()
+    r = run(bybit_exec(settings, fake, price="101").open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    assert r["status"] == "ATLANDI" and "kaçtı" in r["reason"] and fake.count("/v5/order/create") == 0
+
+
+def test_safe_mode_blocks_new_orders(settings):
+    with dbs.session_scope() as s:
+        s.get(SystemState, 1).safe_mode = True
+    fake = FakeBybitPrivate()
+    r = run(bybit_exec(settings, fake).open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    assert r["status"] == "ATLANDI" and fake.count("/v5/order/create") == 0
+
+
+def test_monitor_records_exchange_stop_out_with_own_net_pnl(settings):
+    fake = FakeBybitPrivate(fill_price="100")
+    ex = bybit_exec(settings, fake)
+    run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    mon = PositionMonitor(ex)
+    run(mon.cycle())
+    with dbs.session_scope() as s:
+        assert s.query(Position).one().last_price == D("100")
+    fake.stop_out("BTCUSDT", "98")
+    rep = run(mon.cycle())
+    assert rep["closed"] == 1
+    with dbs.session_scope() as s:
+        p = s.query(Position).one()
+        gross = (D("98") - D("100")) * p.qty
+        fees = p.qty * D("100") * D("0.00055") + p.qty * D("98") * D("0.00055")
+        assert p.status == "KAPALI" and p.realized_net_pnl == pytest.approx(gross - fees, abs=D("0.000001"))
+
+
+def test_reconcile_orphan_position_safe_mode(settings):
+    fake = FakeBybitPrivate()
+    fake.positions["SOLUSDT"] = {"symbol": "SOLUSDT", "side": "Buy", "size": "1", "avgPrice": "150",
+                                 "markPrice": "150", "stopLoss": "", "takeProfit": ""}
+    run(PositionMonitor(bybit_exec(settings, fake)).cycle())
+    enabled, safe, reason = system()
+    assert safe and "SOLUSDT" in reason
+
+
+def test_manual_close(settings):
+    fake = FakeBybitPrivate(fill_price="100")
+    ex = bybit_exec(settings, fake)
+    pid = run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))["position_id"]
+    fake.fill_price = D("101")
+    run(ex.close_position(pid, "elle"))
+    run(PositionMonitor(ex).cycle())
+    with dbs.session_scope() as s:
+        p = s.get(Position, pid)
+        assert p.status == "KAPALI" and p.realized_net_pnl > 0
+
+
+# --- Simülasyon --------------------------------------------------------------
+
+def sim_exec(settings, rows_fn):
+    pub = FakeBybit(kline_rows=rows_fn).client()
+    return ExecutionService(SimBroker(pub, D("0.055")), settings, poll_attempts=1, poll_delay=0)
+
+
+def test_sim_open_uses_ask_and_fee(settings):
+    ex = sim_exec(settings, lambda s, i, n: flat_rows("100", n))
+    r = run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))   # sahte defterde ask 100.1
+    assert r["status"] == "DOLDU" and r["price"] == "100.1"
+    with dbs.session_scope() as s:
+        p = s.query(Position).one()
+        assert p.venue == "SIM" and p.entry_fee == p.qty * D("100.1") * D("0.00055")
+
+
+def test_sim_stop_first_when_both_hit_and_gap_fill(settings):
+    state = {"rows": None}
+    ex = sim_exec(settings, lambda s, i, n: state["rows"] or flat_rows("100", n))
+    pid = run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))["position_id"]
+    import time
+    t = int(time.time() * 1000) + 60_000
+    # aynı mumda hem 106 (hedef) hem 97 (stop) → önce stop; açılış 99 > stop 98 → çıkış stoptan
+    state["rows"] = [[str(t), "99", "106", "97", "100", "1", "0"]]
+    run(PositionMonitor(ex).cycle())
+    with dbs.session_scope() as s:
+        p = s.get(Position, pid)
+        assert p.status == "KAPALI" and p.last_price == D("98") and p.realized_net_pnl < 0
+
+
+def test_sim_gap_below_stop_exits_at_open(settings):
+    state = {"rows": None}
+    ex = sim_exec(settings, lambda s, i, n: state["rows"] or flat_rows("100", n))
+    pid = run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))["position_id"]
+    import time
+    t = int(time.time() * 1000) + 60_000
+    state["rows"] = [[str(t), "96", "96.5", "95", "96", "1", "0"]]
+    run(PositionMonitor(ex).cycle())
+    with dbs.session_scope() as s:
+        assert s.get(Position, pid).last_price == D("96")   # boşluk: stop değil açılış fiyatı
+
+
+def test_signal_only_mode_never_executes(settings):
+    from app.config import TradingMode
+    settings.mode = TradingMode.SIGNAL_ONLY
+    fake = FakeBybitPrivate()
+    r = run(bybit_exec(settings, fake).open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    assert r["status"] == "ATLANDI" and fake.count("/v5/order/create") == 0
+
+
+def test_runner_executes_approved_decision_and_records_result(settings):
+    from app.engines.bot_runner import BotRunner
+    from app.master_robot.decision_engine import MarketInputs, decide
+    from tests.test_master import ctx, sig
+    fake = FakeBybitPrivate(fill_price="100")
+    ex = bybit_exec(settings, fake)
+    runner = BotRunner(None, settings, executor=ex)
+    runner._instruments = {"XUSDT": {"qty_step": "0.001", "min_order_qty": "0.001", "min_notional": "5"}}
+    d = decide(ctx("up"), [sig("BOT10", "nr7_breakout+ema", conf=80, vr=2.2), sig("BOT02", "trend_pullback", conf=85),
+                           sig("BOT06", "liquidity_sweep", conf=75)], MarketInputs(sentiment=20))
+    runner._risk_check(d)
+    assert d.outcome == "ONAYLANDI"
+    from app.engines.bot_runner import save_decision
+    did = save_decision(d)
+    runner.approved.append((did, d))
+    [res] = run(runner._execute_approved())
+    assert res["status"] == "DOLDU"
+    with dbs.session_scope() as s:
+        assert s.get(Decision, did).contributions["yurutme"]["status"] == "DOLDU"
+        assert s.query(Position).filter_by(decision_id=did).one().symbol == "XUSDT"

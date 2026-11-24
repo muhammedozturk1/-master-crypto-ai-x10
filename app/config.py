@@ -149,6 +149,8 @@ class Settings(BaseSettings):
     runner_enabled: bool = True
     runner_timeframes: list[str] = ["5m", "15m", "1h"]
     calendar_enabled: bool = True
+    execution_enabled: bool = True     # onaylanan kararları uygula (anahtar yoksa simülasyon)
+    monitor_interval_sec: int = Field(default=15, ge=5)
     arbitrage_enabled: bool = True
     runner_concurrency: int = Field(default=4, ge=1, le=10)
     taker_fee_pct: float = 0.055  # Bybit USDT perpetual taker komisyonu (tek yön, %)

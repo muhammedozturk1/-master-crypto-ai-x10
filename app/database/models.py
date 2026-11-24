@@ -78,6 +78,7 @@ class Position(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     decision_id: Mapped[int] = mapped_column(ForeignKey("decisions.id"))
     mode: Mapped[str] = mapped_column(String(20))  # PAPER / AUTONOMOUS_LIVE ...
+    venue: Mapped[str | None] = mapped_column(String(12))  # SIM / BYBIT_DEMO / BYBIT
     symbol: Mapped[str] = mapped_column(String(32), index=True)
     side: Mapped[str] = mapped_column(String(5))  # LONG / SHORT
     strategy_id: Mapped[str] = mapped_column(String(64))

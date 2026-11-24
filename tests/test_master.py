@@ -140,7 +140,7 @@ def test_runner_records_decision_and_links_signals(tmp_path):
     from tests.fake_bybit import FakeBybit
     from tests.test_runner import nr7_breakout_rows
     settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/d.db", scanner_enabled=False,
-                        runner_enabled=False, calendar_enabled=False, arbitrage_enabled=False, runner_timeframes=["15m"])
+                        runner_enabled=False, calendar_enabled=False, arbitrage_enabled=False, execution_enabled=False, runner_timeframes=["15m"])
     dbs.configure(settings.sqlalchemy_url)
     dbs.init_db()
     async def go():
@@ -170,7 +170,7 @@ def test_decisions_and_master_endpoints(tmp_path, monkeypatch):
     from tests.fake_bybit import FakeBybit
     from tests.test_runner import nr7_breakout_rows
     settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/e.db", scanner_enabled=False,
-                        runner_enabled=False, calendar_enabled=False, arbitrage_enabled=False, runner_timeframes=["15m"])
+                        runner_enabled=False, calendar_enabled=False, arbitrage_enabled=False, execution_enabled=False, runner_timeframes=["15m"])
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     app.dependency_overrides[get_settings] = lambda: settings
     app.state.market = FakeBybit(kline_rows=nr7_breakout_rows).client()

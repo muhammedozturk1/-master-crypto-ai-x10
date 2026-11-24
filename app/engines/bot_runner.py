@@ -54,6 +54,7 @@ class RunReport:
     signals_new: int = 0
     signals_trade: int = 0
     decisions: dict[str, int] = field(default_factory=dict)
+    executions: list[dict] = field(default_factory=list)
     bot_errors: dict[str, str] = field(default_factory=dict)
     duration_ms: int = 0
 
@@ -108,11 +109,12 @@ def save_signals(signals: list[Signal], bot_ids: list[str], errors: dict[str, st
     return new, trade
 
 
-def save_decision(d: Decision) -> bool:
-    """Kararı kaydeder ve dayandığı sinyalleri karara bağlar. Aynı karar ikinci kez yazılmaz."""
+def save_decision(d: Decision) -> int | None:
+    """Kararı kaydeder ve dayandığı sinyalleri karara bağlar. Aynı karar ikinci kez yazılmaz.
+    Yeni kaydın kimliğini, kayıt zaten varsa None döndürür."""
     with session_scope() as s:
         if s.scalars(select(DecisionRecord.id).where(DecisionRecord.decision_key == d.key)).first():
-            return False
+            return None
         rec = DecisionRecord(
             decision_key=d.key, symbol=d.symbol, timeframe=d.timeframe, direction=d.direction,
             outcome=d.outcome, score=d.score, strategy_id=d.strategy, market_regime=d.regime.regime.value,
@@ -127,16 +129,19 @@ def save_decision(d: Decision) -> bool:
                     st = s.get(BotState, sr.bot_id)
                     if st:
                         st.signals_accepted += 1
-    return True
+        return rec.id
 
 
 class BotRunner:
     def __init__(self, market: BybitPublic, settings: Settings,
-                 providers: dict[str, Callable[[], object]] | None = None):
+                 providers: dict[str, Callable[[], object]] | None = None, executor=None):
         self.market = market
+        self.executor = executor          # BOT09; None ise onaylı kararlar yalnız kaydedilir
+        self.approved: list[tuple[int, Decision]] = []
         self.settings = settings
         self.providers = providers or {}   # piyasa geneli botlara verilecek durumlar (takvim, arbitraj)
         self.last_bar: dict[str, int] = {}
+        self._instruments: dict[str, dict] = {}
         self.reports: dict[str, RunReport] = {}
 
     async def _fetch(self, symbol: str, tf: str, limit: int):
@@ -229,6 +234,8 @@ class BotRunner:
         except Exception:  # noqa: BLE001 – karar hatası sinyal kaydını bozmaz
             log.exception("Ana robot kararı başarısız (%s)", tf)
             rep.decisions = {"HATA": 1}
+        if self.approved:
+            rep.executions = await self._execute_approved()
         rep.duration_ms = int((time.monotonic() - t0) * 1000)
         self.reports[tf] = rep
         log.info("Bot turu %s [%s]: %d/%d sembol, %d yeni sinyal (%d işlem), %d veri sorunu, %d eksik türev, "
@@ -269,9 +276,33 @@ class BotRunner:
             d = decide(ctx, [s for s in signals if s.symbol == sym], mi)
             if d and d.outcome in ("RISK_KONTROLU", "YUKSEK_ONCELIK"):
                 self._risk_check(d)
-            if d and save_decision(d):
+            did = save_decision(d) if d else None
+            if did:
                 out[d.outcome] = out.get(d.outcome, 0) + 1
+                if d.outcome == "ONAYLANDI":
+                    self.approved.append((did, d))
         return out
+
+    async def _execute_approved(self) -> list[dict]:
+        """Onaylanan kararları BOT09 ile uygular; sonuç karara işlenir."""
+        results = []
+        pending, self.approved = self.approved, []
+        for did, d in pending:
+            if self.executor is None:
+                res = {"status": "ATLANDI", "reason": "emir katmanı devre dışı"}
+            else:
+                step = self._instruments.get(d.symbol, {}).get("qty_step")
+                try:
+                    res = await self.executor.open_from_decision(
+                        did, d.symbol, d.direction, d.plan, Decimal(step) if step else None)
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("Emir açma hatası (karar %s)", did)
+                    res = {"status": "HATA", "reason": str(exc)[:300]}
+            with session_scope() as s:
+                rec = s.get(DecisionRecord, did)
+                rec.contributions = {**rec.contributions, "yurutme": res}
+            results.append({"decision_id": did, **res})
+        return results
 
     def _risk_check(self, d: Decision) -> None:
         """BOT07 zorunlu risk kontrolü ve pozisyon büyüklüğü; sonuç karara işlenir."""

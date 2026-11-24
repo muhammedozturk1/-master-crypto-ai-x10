@@ -158,7 +158,7 @@ def test_portfolio_and_risk_endpoints(tmp_path, monkeypatch):
     from app.main import app
     from tests.fake_bybit import FakeBybit
     settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/p.db", scanner_enabled=False,
-                        runner_enabled=False, calendar_enabled=False, arbitrage_enabled=False)
+                        runner_enabled=False, calendar_enabled=False, arbitrage_enabled=False, execution_enabled=False)
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     monkeypatch.setattr("app.config.get_settings", lambda: settings)
     app.dependency_overrides[get_settings] = lambda: settings

@@ -205,7 +205,7 @@ def test_calendar_and_arbitrage_endpoints(tmp_path, monkeypatch):
     from app.config import Settings, get_settings
     from app.main import app
     settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/c.db", scanner_enabled=False,
-                        runner_enabled=False, calendar_enabled=False, arbitrage_enabled=False)
+                        runner_enabled=False, calendar_enabled=False, arbitrage_enabled=False, execution_enabled=False)
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     app.dependency_overrides[get_settings] = lambda: settings
     app.state.market = FakeBybit().client()
