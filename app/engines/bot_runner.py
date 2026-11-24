@@ -113,6 +113,12 @@ class BotRunner:
         errors: dict[str, str] = {}
         sem = asyncio.Semaphore(self.settings.runner_concurrency)
         allow_short = self.settings.market_type == MarketType.LINEAR
+        btc_closes: list[float] | None = None
+        if bots and cands:
+            try:  # göreceli güç (BOT02 strateji D) için aynı zaman diliminde BTC
+                btc_closes = [float(x.close) for x in await self._fetch("BTCUSDT", tf, 260)]
+            except Exception as exc:  # noqa: BLE001
+                rep.data_problems["BTCUSDT(referans)"] = str(exc)[:160]
 
         async def one(c: dict) -> None:
             sym = c["symbol"]
@@ -126,7 +132,8 @@ class BotRunner:
                     return
             ctx = MarketContext(symbol=sym, timeframe=tf, candles=candles, htf_candles=htf,
                                 spread_pct=float(c.get("spread_pct") or 0), allow_short=allow_short,
-                                taker_fee_pct=self.settings.taker_fee_pct)
+                                taker_fee_pct=self.settings.taker_fee_pct,
+                                extra={"btc_closes": btc_closes} if btc_closes else {})
             rep.analyzed += 1
             for bot in bots:
                 try:

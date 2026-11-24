@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.bots.base import WorkerBot
+from app.bots.bot01_technical import TechnicalBot
+from app.bots.bot02_trend import TrendBot
 from app.bots.bot10_nr7 import Nr7Bot
 
 
@@ -38,5 +40,7 @@ BOTS: tuple[BotInfo, ...] = (
 BOTS_BY_ID = {b.bot_id: b for b in BOTS}
 
 IMPLEMENTATIONS: dict[str, type[WorkerBot]] = {
+    "BOT01": TechnicalBot,
+    "BOT02": TrendBot,
     "BOT10": Nr7Bot,
 }

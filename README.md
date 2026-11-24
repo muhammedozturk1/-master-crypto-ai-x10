@@ -12,7 +12,7 @@ Varsayılan mod **PAPER** (Bybit demo hesabı). Canlı mod iki ayrı açık onay
 | --- | --- | --- |
 | 1 | Mimari, ayarlar, veritabanı, API iskeleti | Tamamlandı |
 | 2 | Bybit veri bağlantısı ve coin tarayıcı | Tamamlandı |
-| 3 | 10 botun stratejileri | Devam ediyor (indikatörler, BOT10 NR7 ve bot döngüsü hazır) |
+| 3 | 10 botun stratejileri | Devam ediyor (BOT01, BOT02, BOT10 ve bot döngüsü hazır) |
 | 4 | Ana robot karar motoru | Bekliyor |
 | 5 | Risk ve sermaye | Bekliyor |
 | 6 | Emir ve pozisyon yönetimi | Bekliyor |
@@ -22,8 +22,9 @@ Varsayılan mod **PAPER** (Bybit demo hesabı). Canlı mod iki ayrı açık onay
 | 10 | Testler ve güvenlik incelemesi | Bekliyor |
 | 11 | Canlıya hazırlık | Bekliyor |
 
-Strateji kodu yazılan botlar `/bots` ekranında `implemented: true` görünür. Şu an yalnızca
-BOT10 (NR7) sinyal üretiyor; diğerleri sırayla eklenecek. Botlar işlem açmaz, sinyalleri
+Strateji kodu yazılan botlar `/bots` ekranında `implemented: true` görünür. Şu an BOT01
+(teknik analiz), BOT02 (trend ve momentum) ve BOT10 (NR7) sinyal üretiyor; diğerleri sırayla
+eklenecek. Botlar işlem açmaz, sinyalleri
 kaydeder; işlem kararı Aşama 4'te ana robota ait olacak. Borsaya henüz emir gönderilmez.
 
 **Bot döngüsü:** 15 dakikalık ve 1 saatlik mum kapandıktan 8 saniye sonra, coin
@@ -38,6 +39,21 @@ ortalamasının altındaysa, fiyat kırılım seviyesinden 1 ATR'den fazla uzakl
 hesaplanır. EMA trendi, inside bar, Bollinger/ATR sıkışması, hacim gücü ve üst zaman dilimi
 yönü güven puanını artırır ya da düşürür. Kırılımdan sonraki 3 mum içinde başarılı retest
 ayrı sinyal üretir.
+
+**BOT02 – Trend ve momentum:** Trend pullback (EMA20'ye düşük hacimli geri çekilme ve hacimli
+dönüş, son higher low korunmuş, üst zaman dilimi uyumlu), Donchian breakout (önceki 20
+kapanmış mumun kanalı, hacim ≥1,3x, MACD onayı, 1 ATR'den geç değil), Supertrend momentum
+(yön değişimi + EMA50 eğimi + ADX ≥20 + RSI aşırı değil). BTC'ye göre göreceli güç yalnız
+puan düzeltmesi yapar.
+
+**BOT01 – Teknik analiz:** EMA+RSI trend devamı (EMA dizilimi, RSI 45-65, MACD histogramı
+artıyor, EMA20'den tepki, hacim ≥1,2x), Bollinger mean reversion (yalnız ADX<20; bant
+dışından içeri kapanış ve RSI dönüşü; hedef orta bant, net 1:2 vermiyorsa sinyal yok),
+destek/direnç kırılımı (en az 2 temaslı seviye, hacim ≥1,5x, uzun fitil yok, hedefin
+önünde başka seviye yok). Mum formasyonları tek başına sinyal üretmez, puanı düzeltir.
+
+Tüm işlem sinyalleri ortak kurallardan geçer: stop doğru tarafta ve fiyatın en fazla
+%4'ü uzaklıkta, komisyon ve spread sonrası ödül/risk en az 1:2.
 
 Aşama 2 ile sistem Bybit'in herkese açık uçlarından gerçek fiyat, mum ve emir defteri
 verisini okur (API anahtarı gerekmez). Coin tarayıcı 5 dakikada bir çalışır: işlem gören

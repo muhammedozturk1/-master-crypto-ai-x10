@@ -212,3 +212,51 @@ def slope(values: Series, i: int, bars: int = 5) -> float | None:
     if i - bars < 0 or values[i] is None or values[i - bars] is None or values[i - bars] == 0:
         return None
     return (values[i] - values[i - bars]) / values[i - bars] * 100
+
+
+def supertrend(highs: Sequence[float], lows: Sequence[float], closes: Sequence[float],
+               period: int = 10, mult: float = 3.0) -> tuple[Series, list[int | None]]:
+    """(Supertrend çizgisi, yön) – yön +1 yükseliş, -1 düşüş. Standart nihai bant yöntemi."""
+    n = len(closes)
+    a = atr(highs, lows, closes, period)
+    line: Series = [None] * n
+    dirn: list[int | None] = [None] * n
+    fu = fl = None
+    for i in range(n):
+        if a[i] is None:
+            continue
+        hl2 = (highs[i] + lows[i]) / 2
+        bu, bl = hl2 + mult * a[i], hl2 - mult * a[i]
+        if fu is None:
+            fu, fl, d = bu, bl, 1 if closes[i] >= hl2 else -1
+        else:
+            pc = closes[i - 1]
+            fu = bu if (bu < fu or pc > fu) else fu
+            fl = bl if (bl > fl or pc < fl) else fl
+            prev = dirn[i - 1]
+            if prev == -1 and closes[i] > fu:
+                d = 1
+            elif prev == 1 and closes[i] < fl:
+                d = -1
+            else:
+                d = prev
+        dirn[i] = d
+        line[i] = fl if d == 1 else fu
+    return line, dirn
+
+
+def stoch_rsi(closes: Sequence[float], period: int = 14, k: int = 3) -> Series:
+    r = rsi(closes, period)
+    raw: Series = [None] * len(closes)
+    for i in range(len(closes)):
+        w = [x for x in r[max(0, i - period + 1):i + 1] if x is not None]
+        if len(w) == period and r[i] is not None:
+            lo, hi = min(w), max(w)
+            raw[i] = 0.0 if hi == lo else 100 * (r[i] - lo) / (hi - lo)
+    start = next((i for i, v in enumerate(raw) if v is not None), None)
+    out: Series = [None] * len(closes)
+    if start is not None:
+        sm = sma([v for v in raw[start:]], k)  # type: ignore[misc]
+        for j, v in enumerate(sm):
+            out[start + j] = v
+    return out

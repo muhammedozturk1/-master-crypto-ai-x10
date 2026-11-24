@@ -30,7 +30,7 @@ def test_ten_bots_registered(client):
     assert [b["bot_id"] for b in bots] == [f"BOT{i:02d}" for i in range(1, 11)]
     assert all(b["enabled"] for b in bots)
     implemented = {b["bot_id"] for b in bots if b["implemented"]}
-    assert implemented == {"BOT10"}  # diğer stratejiler Aşama 3'ün devamında
+    assert implemented == {"BOT01", "BOT02", "BOT10"}  # diğer stratejiler Aşama 3'ün devamında
 
 
 def test_write_requires_token(client):

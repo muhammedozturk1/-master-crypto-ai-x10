@@ -114,5 +114,5 @@ def test_signals_and_nr7_endpoints(tmp_path, monkeypatch):
         nr7 = c.get("/nr7").json()
         assert nr7[0]["symbol"] == "BTCUSDT" and nr7[0]["status"] == "KIRILIM" and nr7[0]["nr7_high"] == 100.25
         bots = {b["bot_id"]: b for b in c.get("/bots").json()}
-        assert bots["BOT10"]["implemented"] is True and bots["BOT01"]["implemented"] is False
+        assert bots["BOT10"]["implemented"] is True and bots["BOT03"]["implemented"] is False
     app.dependency_overrides.clear()
