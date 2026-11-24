@@ -14,8 +14,8 @@ Varsayılan mod **PAPER** (Bybit demo hesabı). Canlı mod iki ayrı açık onay
 | 2 | Bybit veri bağlantısı ve coin tarayıcı | Tamamlandı |
 | 3 | 10 botun stratejileri | Tamamlandı (sinyal botları; BOT07-09 Aşama 5-6'da) |
 | 4 | Ana robot karar motoru | Tamamlandı |
-| 5 | Risk ve sermaye | Sırada |
-| 6 | Emir ve pozisyon yönetimi | Bekliyor |
+| 5 | Risk ve sermaye | Tamamlandı |
+| 6 | Emir ve pozisyon yönetimi | Sırada |
 | 7 | Kâr koruma kilidi | Bekliyor |
 | 8 | Backtest ve paper trading | Bekliyor |
 | 9 | Panel ve Telegram | Bekliyor |
@@ -109,6 +109,27 @@ Her karar gerekçesi, puan dağılımı, rejimi, destekleyen sinyaller ve işlem
 stop, hedef) kaydedilir. Reddedilen fırsatlar da kaydedilir. 75 üstü kararlar şimdilik
 yalnız kayıt: risk katmanı ve emir katmanı devreye girmeden emir oluşmaz.
 
+## Risk ve sermaye (Aşama 5)
+
+Ana robotun 75 üstü her kararı **BOT07** zorunlu risk katmanından geçer; ana robot bu
+kontrolleri aşamaz. Onaylanan karar `ONAYLANDI`, reddedilen `RISK_RED` olarak gerekçesiyle
+kaydedilir.
+
+- **Hesap düzeyi:** günlük zarar %2 → gün sonuna kadar yeni işlem yok; haftalık %5 → işlemler
+  durur; zirveden %10 düşüş (gerçekleşmemiş zarar dahil) → güvenli mod, kullanıcı onayı
+  olmadan yeniden başlamaz; art arda 3 zarar → 30 dk bekleme; 5 zarar → işlemler durur.
+- **İşlem düzeyi:** en fazla 2 açık pozisyon, aynı paritede ikinci pozisyon yok, net ödül/risk
+  en az 1:2.
+- **Pozisyon büyüklüğü:** risk bütçesi = özkaynak × %0,5 (yüksek volatilitede yarısı); miktar =
+  bütçe / (stop mesafesi + birim maliyet). Teminat tek pozisyonda özkaynağın %25'i, toplamda
+  %50'si; toplam açık risk ve borsa miktar adımı/minimumu ile sınırlanır. Minimumu karşılamak
+  için risk limiti aşılmaz, işlem reddedilir.
+
+**BOT08** tek ortak kasayı izler: özkaynak, kullanılabilir bakiye, teminat, gerçekleşmiş ve
+gerçekleşmemiş net K/Z, komisyon, zirve özkaynak, düşüş, günlük/haftalık/aylık sonuç, art arda
+kayıp. Kapanan işlemin net kârı kasaya eklenir (bileşik). 5 dakikada bir kasa anlık görüntüsü
+alınır.
+
 ## Seçilen çalışma biçimi
 
 - Şartnamedeki 10 bot ve risk kuralları.
@@ -167,6 +188,8 @@ Bybit API anahtarına **para çekme yetkisi vermeyin**.
 | `GET /calendar` | Takvim vetosu, yaklaşan yüksek etkili veriler, Fear & Greed |
 | `GET /arbitrage` | Arbitraj gözlem raporu |
 | `GET /decisions` | Ana robot kararları (`outcome=REDDEDILDI` gibi filtrelerle) |
+| `GET /portfolio` | BOT08 kasa durumu |
+| `GET /risk` | BOT07 limitleri, kullanım ve yeni işlemi engelleyen nedenler |
 | `GET /master` | Ana robot özeti: son karar, 24 saatlik dağılım, veto ve bot ağırlıkları |
 
 Yazma uçları `X-Dashboard-Token` başlığı ister.

@@ -25,6 +25,11 @@ from app.data.candles import INTERVAL_MINUTES, TIMEFRAME_TO_INTERVAL, closed_onl
 from app.database.models import BotState, ScanSnapshot, SignalRecord, SystemState
 from app.database.models import Decision as DecisionRecord
 from app.engines.calendar_service import fng_sentiment, veto_status
+from decimal import Decimal
+
+from app.bots.bot07_risk import RiskManager, TradeRequest
+from app.bots.bot08_portfolio import account_state
+from app.database.models import AuditLog
 from app.master_robot.decision_engine import Decision, MarketInputs, decide
 from app.database.session import session_scope
 from app.domain.signals import Action, Signal
@@ -164,6 +169,7 @@ class BotRunner:
         linear = self.settings.market_type == MarketType.LINEAR
         need_deriv = linear and any(b.needs_derivatives for b in symbol_bots)
         cands = latest_candidates(self.settings.scan_top_n) if symbol_bots else []
+        self._instruments = {c["symbol"]: c for c in cands}
         rep.symbols = len(cands)
         signals: list[Signal] = []
         errors: dict[str, str] = {}
@@ -261,9 +267,45 @@ class BotRunner:
             if ctx is None:
                 continue
             d = decide(ctx, [s for s in signals if s.symbol == sym], mi)
+            if d and d.outcome in ("RISK_KONTROLU", "YUKSEK_ONCELIK"):
+                self._risk_check(d)
             if d and save_decision(d):
                 out[d.outcome] = out.get(d.outcome, 0) + 1
         return out
+
+    def _risk_check(self, d: Decision) -> None:
+        """BOT07 zorunlu risk kontrolü ve pozisyon büyüklüğü; sonuç karara işlenir."""
+        p = d.plan or {}
+        long = d.direction == "LONG"
+        inst = getattr(self, "_instruments", {}).get(d.symbol, {})
+        def dec(x):
+            return Decimal(str(x)) if x not in (None, "", "None") else None
+        req = TradeRequest(
+            symbol=d.symbol, long=long,
+            entry=dec(p["entry_high"] if long else p["entry_low"]), stop=dec(p["stop_loss"]),
+            target=dec(p["take_profit"]), cost_pct=dec(p.get("estimated_cost_pct")) or Decimal("0.12"),
+            regime=d.regime.regime.value, qty_step=dec(inst.get("qty_step")),
+            min_qty=dec(inst.get("min_order_qty")), min_notional=dec(inst.get("min_notional")),
+        )
+        with session_scope() as s:
+            acc = account_state(s, self.settings.risk.starting_capital_usd, self.settings.mode.value)
+            v = RiskManager(self.settings.risk).evaluate(req, acc)
+            if v.halt:
+                st = s.get(SystemState, 1)
+                if v.halt == "SAFE_MODE":
+                    st.safe_mode = True
+                    st.safe_mode_reason = v.reasons[0]
+                st.trading_enabled = False
+                s.add(AuditLog(event="risk_durdurma", actor="BOT07", detail={"halt": v.halt, "reasons": v.reasons}))
+        d.contributions["risk"] = v.to_dict()
+        if v.approved:
+            d.outcome = "ONAYLANDI"
+            d.plan = {**p, "qty": str(v.qty), "notional": str(v.notional), "margin": str(v.margin),
+                      "leverage": v.leverage, "risk_usd": str(v.risk_usd)}
+            d.reason += f"; BOT07 onayı: {v.qty} adet, {v.notional:.2f} USD, risk {v.risk_usd:.3f} USD"
+        else:
+            d.outcome = "RISK_RED"
+            d.reason += "; BOT07 reddi: " + "; ".join(v.reasons)
 
     def due_timeframes(self, at_ms: int | None = None) -> list[str]:
         t = now_ms() if at_ms is None else at_ms

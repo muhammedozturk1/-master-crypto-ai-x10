@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.bots.registry import BOTS, BOTS_BY_ID, IMPLEMENTATIONS
+from app.bots.registry import BOTS, BOTS_BY_ID, IMPLEMENTATIONS, IMPLEMENTED_LAYERS
 from app.config import Settings, get_settings
 from app.database.models import AuditLog, BotState, SystemState
 from app.database.session import get_session
@@ -63,7 +63,7 @@ def list_bots(session: Session = Depends(get_session)) -> list[dict]:
             "name": info.name,
             "role": info.role,
             "kind": info.kind,
-            "implemented": info.bot_id in IMPLEMENTATIONS,
+            "implemented": info.bot_id in IMPLEMENTATIONS or info.bot_id in IMPLEMENTED_LAYERS,
             "planned_stage": info.stage,
             "enabled": st.enabled if st else False,
             "weight": str(st.weight) if st else "0",

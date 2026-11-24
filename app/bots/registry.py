@@ -52,3 +52,6 @@ IMPLEMENTATIONS: dict[str, type[WorkerBot]] = {
     "BOT06": FlowBot,
     "BOT10": Nr7Bot,
 }
+
+# Sinyal üretmeyen ama kodu yazılmış katmanlar (karar ve risk akışında kullanılır)
+IMPLEMENTED_LAYERS = {"BOT07", "BOT08"}

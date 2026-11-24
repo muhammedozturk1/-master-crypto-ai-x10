@@ -153,3 +153,46 @@ def master_status(request: Request, session: Session = Depends(get_session)) -> 
                    "bot_weights": mi.bot_weights} if mi else None,
         "execution": "Emir gönderimi yok: risk katmanı (Aşama 5) ve emir katmanı (Aşama 6) henüz devrede değil.",
     }
+
+
+@router.get("/portfolio")
+def portfolio(session: Session = Depends(get_session)) -> dict:
+    """BOT08 kasa durumu: tek ortak kasa, bileşik, gerçekleşmemiş K/Z dahil özkaynak."""
+    from app.bots.bot08_portfolio import account_state
+    from app.config import get_settings
+    s = get_settings()
+    st = account_state(session, s.risk.starting_capital_usd, s.mode.value)
+    return {"mode": s.mode.value, **st.to_dict(),
+            "note": "Gerçekleşmemiş K/Z garanti edilmiş kâr değildir. Para yatırma/çekme yok (paper kasa)."}
+
+
+@router.get("/risk")
+def risk_status(session: Session = Depends(get_session)) -> dict:
+    """BOT07 durumu: limitler, kullanım ve şu an yeni işlemi engelleyen nedenler."""
+    from app.bots.bot07_risk import RiskManager
+    from app.bots.bot08_portfolio import account_state
+    from app.config import HARD_CAPS, get_settings
+    from app.database.models import SystemState
+    s = get_settings()
+    lim = s.risk
+    acc = account_state(session, lim.starting_capital_usd, s.mode.value)
+    blocks, halt = RiskManager(lim).account_blocks(acc)
+    sysst = session.get(SystemState, 1)
+    day_limit = acc.day_start_equity * lim.daily_loss_pct / 100
+    week_limit = acc.week_start_equity * lim.weekly_loss_pct / 100
+    return {
+        "limits": {k: str(v) for k, v in lim.model_dump().items()},
+        "hard_caps": {k: str(v) for k, v in HARD_CAPS.items()},
+        "usage": {
+            "risk_budget_usd": str((acc.equity * lim.risk_per_trade_pct / 100).quantize(acc.equity.__class__("0.0001"))),
+            "daily_pnl": str(acc.day_pnl.quantize(acc.equity.__class__("0.01"))), "daily_limit": str(day_limit.quantize(acc.equity.__class__("0.01"))),
+            "weekly_pnl": str(acc.week_pnl.quantize(acc.equity.__class__("0.01"))), "weekly_limit": str(week_limit.quantize(acc.equity.__class__("0.01"))),
+            "drawdown_pct": str(acc.drawdown_pct.quantize(acc.equity.__class__("0.01"))),
+            "open_positions": acc.open_positions, "open_risk_usd": str(acc.open_risk),
+            "margin_in_use": str(acc.margin_in_use), "consecutive_losses": acc.consecutive_losses,
+        },
+        "new_trades_blocked_by": blocks,
+        "system": {"trading_enabled": sysst.trading_enabled if sysst else None,
+                   "safe_mode": sysst.safe_mode if sysst else None,
+                   "safe_mode_reason": sysst.safe_mode_reason if sysst else None},
+    }

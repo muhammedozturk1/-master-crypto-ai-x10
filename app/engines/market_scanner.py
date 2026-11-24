@@ -36,6 +36,8 @@ class Candidate:
     listing_days: int
     min_order_qty: Decimal
     min_notional: Decimal
+    qty_step: Decimal = Decimal(0)
+    tick_size: Decimal = Decimal(0)
 
     def to_dict(self) -> dict:
         return {
@@ -48,6 +50,8 @@ class Candidate:
             "listing_days": self.listing_days,
             "min_order_qty": str(self.min_order_qty),
             "min_notional": str(self.min_notional),
+            "qty_step": str(self.qty_step),
+            "tick_size": str(self.tick_size),
         }
 
 
@@ -99,7 +103,8 @@ def select_candidates(tickers: list[Ticker], instruments: list[Instrument], cfg:
         if spread > cfg.max_spread_pct:
             reject("yuksek_spread"); continue
         out.append(Candidate(t.symbol, t.last_price, t.turnover_24h, spread, t.change_24h_pct,
-                             t.funding_rate, int(days), i.min_order_qty, i.min_notional))
+                             t.funding_rate, int(days), i.min_order_qty, i.min_notional,
+                             i.qty_step, i.tick_size))
 
     out.sort(key=lambda c: c.turnover_24h, reverse=True)
     if len(out) > cfg.top_n:

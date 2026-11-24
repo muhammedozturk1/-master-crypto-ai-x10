@@ -18,10 +18,23 @@ from app.engines.arbitrage_service import ArbitrageService
 from app.engines.bot_runner import BotRunner, latest_candidates
 from app.engines.calendar_service import CalendarService
 from app.engines.scanner_service import scanner_loop
+from app.bots.bot08_portfolio import account_state, record_snapshot
+from app.database.session import session_scope
 from app.exchange.bybit_public import BybitPublic
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("x10")
+
+
+async def equity_loop(settings, every_sec: int = 300) -> None:
+    """BOT08: kasa anlık görüntüsü (zirve özkaynak ve drawdown takibi için)."""
+    while True:
+        try:
+            with session_scope() as s:
+                record_snapshot(s, account_state(s, settings.risk.starting_capital_usd, settings.mode.value))
+        except Exception:  # noqa: BLE001
+            log.exception("Kasa anlık görüntüsü alınamadı")
+        await asyncio.sleep(every_sec)
 
 
 @asynccontextmanager
@@ -50,6 +63,7 @@ async def lifespan(app: FastAPI):
         tasks.append(asyncio.create_task(app.state.arbitrage.loop()))
     if app.state.runner:
         tasks.append(asyncio.create_task(app.state.runner.loop()))
+        tasks.append(asyncio.create_task(equity_loop(settings)))
     log.info("Başlatıldı: mod=%s borsa=%s demo=%s tarayıcı=%s bot_döngüsü=%s takvim=%s arbitraj=%s",
              settings.mode.value, settings.exchange, settings.bybit_demo, settings.scanner_enabled,
              settings.runner_enabled, settings.calendar_enabled, settings.arbitrage_enabled)

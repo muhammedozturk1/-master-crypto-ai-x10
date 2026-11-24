@@ -92,6 +92,11 @@ class Position(Base):
     entry_fee: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
     exit_fee: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
     realized_net_pnl: Mapped[Decimal | None] = mapped_column(MONEY)
+    # Pozisyon izleyicinin güncellediği anlık değerler ve açılıştaki risk/teminat
+    last_price: Mapped[Decimal | None] = mapped_column(PRICE)
+    unrealized_net_pnl: Mapped[Decimal | None] = mapped_column(MONEY)
+    risk_usd: Mapped[Decimal | None] = mapped_column(MONEY)
+    margin_usd: Mapped[Decimal | None] = mapped_column(MONEY)
     status: Mapped[str] = mapped_column(String(12), default="ACIK", index=True)
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

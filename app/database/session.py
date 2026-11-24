@@ -42,6 +42,10 @@ ADDED_COLUMNS = [
     ("decisions", "timeframe", "VARCHAR(8)"),
     ("decisions", "direction", "VARCHAR(5)"),
     ("decisions", "plan", "JSON"),
+    ("positions", "last_price", "NUMERIC(28, 10)"),
+    ("positions", "unrealized_net_pnl", "NUMERIC(20, 8)"),
+    ("positions", "risk_usd", "NUMERIC(20, 8)"),
+    ("positions", "margin_usd", "NUMERIC(20, 8)"),
 ]
 UNIQUE_INDEXES = [("uq_signals_dedup", "signals", "dedup_key"), ("uq_decisions_key", "decisions", "decision_key")]
 
