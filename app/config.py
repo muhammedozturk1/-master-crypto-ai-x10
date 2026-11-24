@@ -139,6 +139,11 @@ class Settings(BaseSettings):
     min_24h_volume_usdt: Decimal = Decimal("10000000")
     max_spread_pct: Decimal = Decimal("0.10")
     scan_top_n: int = 30
+    min_listing_days: int = 30
+    scanner_enabled: bool = True
+    scanner_interval_sec: int = Field(default=300, ge=60)
+    symbol_whitelist: list[str] = []
+    symbol_blacklist: list[str] = []
 
     risk: RiskLimits = RiskLimits()
 

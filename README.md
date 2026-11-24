@@ -11,8 +11,8 @@ Varsayılan mod **PAPER** (Bybit demo hesabı). Canlı mod iki ayrı açık onay
 | Aşama | Konu | Durum |
 | --- | --- | --- |
 | 1 | Mimari, ayarlar, veritabanı, API iskeleti | Tamamlandı |
-| 2 | Bybit veri bağlantısı ve coin tarayıcı | Sırada |
-| 3 | 10 botun stratejileri | Bekliyor |
+| 2 | Bybit veri bağlantısı ve coin tarayıcı | Tamamlandı |
+| 3 | 10 botun stratejileri | Sırada |
 | 4 | Ana robot karar motoru | Bekliyor |
 | 5 | Risk ve sermaye | Bekliyor |
 | 6 | Emir ve pozisyon yönetimi | Bekliyor |
@@ -24,6 +24,13 @@ Varsayılan mod **PAPER** (Bybit demo hesabı). Canlı mod iki ayrı açık onay
 
 Şu an botlar kayıtlı ama strateji kodu yok: `/bots` her birini `implemented: false` gösterir
 ve hiçbir bot sinyal üretmez. Borsaya henüz emir gönderilmez.
+
+Aşama 2 ile sistem Bybit'in herkese açık uçlarından gerçek fiyat, mum ve emir defteri
+verisini okur (API anahtarı gerekmez). Coin tarayıcı 5 dakikada bir çalışır: işlem gören
+USDT perpetual paritelerinden 24 saatlik hacmi 10 milyon USDT'nin altındakileri, spread'i
+%0,10'un üstündekileri ve 30 günden yeni listelenenleri eler, en likit 30'u sıralar.
+Mum uçları yalnızca kapanmış mumları döndürür ve veri kalitesini (boşluk, bayatlık,
+OHLC tutarlılığı) kontrol eder.
 
 ## Seçilen çalışma biçimi
 
@@ -75,5 +82,7 @@ Bybit API anahtarına **para çekme yetkisi vermeyin**.
 | `POST /system/kill-switch` | Acil durdurma, güvenli mod. Token ister |
 | `POST /system/resume` | `confirm: true` ile yeniden başlatma. Token ister |
 | `GET /audit` | Ayar ve sistem olay kaydı |
+| `GET /market/scan` | Son coin taraması: adaylar ve elenme nedenleri |
+| `GET /market/candles/{symbol}?timeframe=15m&limit=100` | Kapanmış mumlar ve veri kalitesi |
 
 Yazma uçları `X-Dashboard-Token` başlığı ister.

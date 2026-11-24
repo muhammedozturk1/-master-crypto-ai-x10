@@ -9,7 +9,7 @@ TOKEN = "test-token-123"
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/t.db", dashboard_token=TOKEN)
+    settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/t.db", dashboard_token=TOKEN, scanner_enabled=False)
     get_settings.cache_clear()
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     app.dependency_overrides[get_settings] = lambda: settings
@@ -60,7 +60,7 @@ def test_kill_switch_and_resume_are_audited(client):
 
 
 def test_writes_disabled_without_token_config(tmp_path, monkeypatch):
-    settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/t2.db")
+    settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/t2.db", scanner_enabled=False)
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     app.dependency_overrides[get_settings] = lambda: settings
     with TestClient(app) as c:

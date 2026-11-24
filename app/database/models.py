@@ -144,6 +144,20 @@ class SystemState(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class ScanSnapshot(Base):
+    """Coin tarayıcının her turunun sonucu: seçilenler ve elenme nedenleri."""
+
+    __tablename__ = "scan_snapshots"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    selected: Mapped[int] = mapped_column(Integer, default=0)
+    total_symbols: Mapped[int] = mapped_column(Integer, default=0)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class AuditLog(Base):
     """Ayar değişiklikleri, acil durdurmalar ve sistem olayları."""
 
