@@ -37,7 +37,7 @@ def nr7_breakout_rows(symbol, interval, limit):
 @pytest.fixture
 def env(tmp_path):
     settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/r.db",
-                        scanner_enabled=False, runner_enabled=False, runner_timeframes=["15m"])
+                        scanner_enabled=False, runner_enabled=False, calendar_enabled=False, arbitrage_enabled=False, runner_timeframes=["15m"])
     dbs.configure(settings.sqlalchemy_url)
     dbs.init_db()
     return settings
@@ -62,6 +62,25 @@ def test_runner_records_nr7_signal_once(env):
         assert len(recs) == 1 and recs[0].symbol == "BTCUSDT" and recs[0].action == "AL"
         st = s.get(BotState, "BOT10")
         assert st.signals_total == 1 and st.status == "calisiyor" and st.last_analysis_at is not None
+
+
+def test_derivatives_and_market_wide_bots(env):
+    from app.engines.arbitrage_service import ArbState
+    from datetime import datetime, timezone
+    state = ArbState(cross=[{"symbol": "BTCUSDT", "buy": "bybit", "sell": "binance", "net_pct": 0.4}],
+                     checked_at=datetime.now(timezone.utc))
+    async def go():
+        market = FakeBybit().client()
+        await scan_once(market, env)
+        r = await BotRunner(market, env, providers={"arbitrage": lambda: state}).run_timeframe("15m")
+        await market.close()
+        return r
+    r = asyncio.run(go())
+    assert "BOT06" in r.bots and "BOT04" in r.bots and "BOT03" not in r.bots  # BOT03 yalnız 5m
+    assert r.missing_derivatives == 0 and not r.bot_errors
+    from app.database.models import SignalRecord
+    with dbs.session_scope() as s:
+        assert s.query(SignalRecord).filter_by(bot_id="BOT04", symbol="PIYASA").count() == 1
 
 
 def test_disabled_bot_does_not_run(env):
@@ -101,7 +120,7 @@ def test_signals_and_nr7_endpoints(tmp_path, monkeypatch):
     from app.config import get_settings
     from app.main import app
     settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/e.db", scanner_enabled=False,
-                        runner_enabled=False, runner_timeframes=["15m"])
+                        runner_enabled=False, calendar_enabled=False, arbitrage_enabled=False, runner_timeframes=["15m"])
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     app.dependency_overrides[get_settings] = lambda: settings
     app.state.market = FakeBybit(kline_rows=nr7_breakout_rows).client()
@@ -114,5 +133,5 @@ def test_signals_and_nr7_endpoints(tmp_path, monkeypatch):
         nr7 = c.get("/nr7").json()
         assert nr7[0]["symbol"] == "BTCUSDT" and nr7[0]["status"] == "KIRILIM" and nr7[0]["nr7_high"] == 100.25
         bots = {b["bot_id"]: b for b in c.get("/bots").json()}
-        assert bots["BOT10"]["implemented"] is True and bots["BOT03"]["implemented"] is False
+        assert bots["BOT10"]["implemented"] is True and bots["BOT07"]["implemented"] is False
     app.dependency_overrides.clear()

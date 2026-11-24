@@ -171,3 +171,31 @@ class BybitPublic:
             asks=[(_d(p), _d(q)) for p, q in res.get("a", [])],
             ts_ms=int(res.get("ts") or 0),
         )
+
+    # --- Türev piyasa verileri (BOT06) ---------------------------------
+    async def open_interest(self, symbol: str, interval: str = "15min", limit: int = 48) -> list[tuple[int, Decimal]]:
+        """(zaman_ms, açık pozisyon) eskiden yeniye. interval: 5min,15min,30min,1h,4h,1d"""
+        res = await self._get("/v5/market/open-interest", {
+            "category": self.category, "symbol": symbol, "intervalTime": interval, "limit": limit})
+        rows = [(int(r["timestamp"]), _d(r["openInterest"])) for r in res.get("list", [])]
+        return sorted(rows)
+
+    async def funding_history(self, symbol: str, limit: int = 30) -> list[tuple[int, Decimal]]:
+        res = await self._get("/v5/market/funding/history", {
+            "category": self.category, "symbol": symbol, "limit": limit})
+        rows = [(int(r["fundingRateTimestamp"]), _d(r["fundingRate"])) for r in res.get("list", [])]
+        return sorted(rows)
+
+    async def account_ratio(self, symbol: str, period: str = "1h", limit: int = 24) -> list[tuple[int, Decimal]]:
+        """(zaman_ms, long hesap oranı 0-1) eskiden yeniye."""
+        res = await self._get("/v5/market/account-ratio", {
+            "category": self.category, "symbol": symbol, "period": period, "limit": limit})
+        rows = [(int(r["timestamp"]), _d(r["buyRatio"])) for r in res.get("list", [])]
+        return sorted(rows)
+
+    async def recent_trades(self, symbol: str, limit: int = 1000) -> list[tuple[int, str, Decimal, Decimal]]:
+        """(zaman_ms, taker yönü 'Buy'/'Sell', fiyat, miktar) eskiden yeniye."""
+        res = await self._get("/v5/market/recent-trade", {
+            "category": self.category, "symbol": symbol, "limit": limit})
+        rows = [(int(r["time"]), r["side"], _d(r["price"]), _d(r["size"])) for r in res.get("list", [])]
+        return sorted(rows, key=lambda x: x[0])

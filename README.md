@@ -12,8 +12,8 @@ Varsayılan mod **PAPER** (Bybit demo hesabı). Canlı mod iki ayrı açık onay
 | --- | --- | --- |
 | 1 | Mimari, ayarlar, veritabanı, API iskeleti | Tamamlandı |
 | 2 | Bybit veri bağlantısı ve coin tarayıcı | Tamamlandı |
-| 3 | 10 botun stratejileri | Devam ediyor (BOT01, BOT02, BOT10 ve bot döngüsü hazır) |
-| 4 | Ana robot karar motoru | Bekliyor |
+| 3 | 10 botun stratejileri | Tamamlandı (sinyal botları; BOT07-09 Aşama 5-6'da) |
+| 4 | Ana robot karar motoru | Sırada |
 | 5 | Risk ve sermaye | Bekliyor |
 | 6 | Emir ve pozisyon yönetimi | Bekliyor |
 | 7 | Kâr koruma kilidi | Bekliyor |
@@ -22,12 +22,14 @@ Varsayılan mod **PAPER** (Bybit demo hesabı). Canlı mod iki ayrı açık onay
 | 10 | Testler ve güvenlik incelemesi | Bekliyor |
 | 11 | Canlıya hazırlık | Bekliyor |
 
-Strateji kodu yazılan botlar `/bots` ekranında `implemented: true` görünür. Şu an BOT01
-(teknik analiz), BOT02 (trend ve momentum) ve BOT10 (NR7) sinyal üretiyor; diğerleri sırayla
-eklenecek. Botlar işlem açmaz, sinyalleri
+Strateji kodu yazılan botlar `/bots` ekranında `implemented: true` görünür. Sinyal botlarının
+hepsi çalışıyor: BOT01, BOT02, BOT03, BOT06, BOT10 işlem sinyali; BOT05 takvim vetosu ve
+duyarlılık; BOT04 arbitraj gözlemi üretir. BOT07 (risk), BOT08 (portföy) ve BOT09 (emir)
+karar ve uygulama katmanıdır; Aşama 5 ve 6'da yazılacak. Botlar işlem açmaz, sinyalleri
 kaydeder; işlem kararı Aşama 4'te ana robota ait olacak. Borsaya henüz emir gönderilmez.
 
-**Bot döngüsü:** 15 dakikalık ve 1 saatlik mum kapandıktan 8 saniye sonra, coin
+**Bot döngüsü:** 5 dakikalık, 15 dakikalık ve 1 saatlik mum kapandıktan 8 saniye sonra, o zaman
+diliminde çalışan botlar için coin
 tarayıcının son 30 adayı için kapanmış mumları çeker, veri kalitesini kontrol eder ve açık
 botları çalıştırır. Aynı sinyal ikinci kez kaydedilmez.
 
@@ -51,6 +53,30 @@ artıyor, EMA20'den tepki, hacim ≥1,2x), Bollinger mean reversion (yalnız ADX
 dışından içeri kapanış ve RSI dönüşü; hedef orta bant, net 1:2 vermiyorsa sinyal yok),
 destek/direnç kırılımı (en az 2 temaslı seviye, hacim ≥1,5x, uzun fitil yok, hedefin
 önünde başka seviye yok). Mum formasyonları tek başına sinyal üretmez, puanı düzeltir.
+
+**BOT06 – Emir akışı ve likidite:** Funding geçmişi, open interest, long/short hesap oranı,
+son 1000 işlemden taker alış/satış payı (CVD) ve emir defteri derinliği. Stratejiler: likidite
+süpürmesi (dip/tepe fitille aşılıp kapanışla geri dönülmesi), birikim (yatay fiyat + OBV/CVD
+pozitif ayrışma), dağıtım (tersi; risk uyarısı). Kalabalık pozisyon ve OI/fiyat uyumu yalnız
+puanı düzeltir. Açıklanamayan hacim patlaması veya anormal spread görülürse sinyal yerine
+manipülasyon uyarısı kaydedilir. **Bağlı değil:** on-chain veriler (cüzdan transferleri,
+borsa giriş/çıkışları, stablecoin hareketleri) için ücretsiz güvenilir kaynak yok; her BOT06
+sinyalinde "on-chain veri yok" uyarısı bulunur.
+
+**BOT03 – Scalping (5 dk):** EMA9/21 geri çekilme sonrası momentum, VWAP reclaim ve retest,
+mikro kırılım. 15 dakikalık yön uyumu zorunlu, spread en fazla %0,05, beklenen hareket (ATR)
+işlem maliyetinin en az 4 katı. Başarısız işlem sonrası bekleme, günlük scalping sınırı ve
+"beklenen değer negatifse otomatik pasif" kuralları işlem sonucu gerektirdiği için ana robot
+ve performans katmanında (Aşama 5 ve 8) uygulanacak.
+
+**BOT05 – Takvim ve duyarlılık:** ForexFactory haftalık takvim akışından yüksek etkili USD
+verilerinden 15 dk önce ve 15 dk sonra işlem vetosu; Fear & Greed endeksinden -100..+100
+duyarlılık. **Bağlı değil:** haber akışı, sosyal medya, token unlock takvimi, borsa
+listeleme/delist ve regülasyon haberleri.
+
+**BOT04 – Arbitraj (gözlem):** Bybit spot içinde üçgen arbitraj (USDT→BTC/ETH→coin→USDT)
+ve Bybit, Binance, OKX spot fiyat farkları, komisyon sonrası net. Transfer ücreti ve süresi
+dahil değil. 200 USD kasada işlem yapılmaz, yalnız rapor.
 
 Tüm işlem sinyalleri ortak kurallardan geçer: stop doğru tarafta ve fiyatın en fazla
 %4'ü uzaklıkta, komisyon ve spread sonrası ödül/risk en az 1:2.
@@ -117,5 +143,7 @@ Bybit API anahtarına **para çekme yetkisi vermeyin**.
 | `GET /signals` | Son işlem sinyalleri (`include_wait=true` ile bekleme sinyalleri de) |
 | `GET /nr7` | NR7 tarayıcı: tespit edilen pariteler, seviyeler, kırılım durumu |
 | `GET /runner` | Son bot turlarının raporu |
+| `GET /calendar` | Takvim vetosu, yaklaşan yüksek etkili veriler, Fear & Greed |
+| `GET /arbitrage` | Arbitraj gözlem raporu |
 
 Yazma uçları `X-Dashboard-Token` başlığı ister.

@@ -147,7 +147,9 @@ class Settings(BaseSettings):
 
     # Bot çalıştırıcı
     runner_enabled: bool = True
-    runner_timeframes: list[str] = ["15m", "1h"]
+    runner_timeframes: list[str] = ["5m", "15m", "1h"]
+    calendar_enabled: bool = True
+    arbitrage_enabled: bool = True
     runner_concurrency: int = Field(default=4, ge=1, le=10)
     taker_fee_pct: float = 0.055  # Bybit USDT perpetual taker komisyonu (tek yön, %)
 

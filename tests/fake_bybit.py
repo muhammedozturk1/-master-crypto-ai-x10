@@ -74,6 +74,19 @@ class FakeBybit:
             return httpx.Response(200, json={"retCode": 0, "result": {"list": instruments, "nextPageCursor": ""}})
         if path == "/v5/market/orderbook":
             return httpx.Response(200, json={"retCode": 0, "result": {"b": [["99.9", "10"], ["99.0", "5"]], "a": [["100.1", "8"], ["101.5", "3"]], "ts": now}})
+        # Bybit gibi en yeniden eskiye
+        if path == "/v5/market/open-interest":
+            rows = [{"openInterest": str(1000 + k), "timestamp": str(now - k * 900_000)} for k in range(int(q["limit"]))]
+            return httpx.Response(200, json={"retCode": 0, "result": {"list": rows}})
+        if path == "/v5/market/funding/history":
+            rows = [{"fundingRate": "0.0001", "fundingRateTimestamp": str(now - k * 28_800_000)} for k in range(int(q["limit"]))]
+            return httpx.Response(200, json={"retCode": 0, "result": {"list": rows}})
+        if path == "/v5/market/account-ratio":
+            rows = [{"symbol": q["symbol"], "buyRatio": "0.6", "sellRatio": "0.4", "timestamp": str(now - k * 3_600_000)} for k in range(int(q["limit"]))]
+            return httpx.Response(200, json={"retCode": 0, "result": {"list": rows}})
+        if path == "/v5/market/recent-trade":
+            rows = [{"execId": str(k), "price": "100", "size": "1", "side": "Buy" if k % 3 else "Sell", "time": str(now - k * 1000)} for k in range(30)]
+            return httpx.Response(200, json={"retCode": 0, "result": {"list": rows}})
         return httpx.Response(404)
 
     def client(self) -> BybitPublic:

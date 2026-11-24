@@ -74,6 +74,10 @@ def px(value: float) -> Decimal:
 
 class WorkerBot(ABC):
     bot_id: str
+    # Botun çalıştığı zaman dilimleri ve ihtiyaç duyduğu ek veri
+    timeframes: frozenset[str] = frozenset({"15m", "1h"})
+    needs_derivatives: bool = False   # funding, open interest, long/short, son işlemler, emir defteri
+    market_wide: bool = False         # sembol başına değil, tüm piyasa için bir kez çalışır
 
     @abstractmethod
     def analyze(self, ctx: MarketContext) -> list[Signal]:

@@ -70,3 +70,37 @@ def runner_status(request: Request) -> dict:
     if runner is None:
         return {"enabled": False}
     return {"enabled": True, "last_runs": {tf: asdict(r) for tf, r in runner.reports.items()}}
+
+
+@router.get("/calendar")
+def calendar(request: Request) -> dict:
+    """Ekonomik takvim vetosu ve Fear & Greed (BOT05 kaynağı)."""
+    from app.config import get_settings
+    from app.engines.calendar_service import MISSING_SOURCES, fng_sentiment, veto_status
+    svc = getattr(request.app.state, "calendar", None)
+    if svc is None:
+        return {"enabled": False}
+    st, s = svc.state, get_settings()
+    now = datetime.now(timezone.utc)
+    upcoming = [e.to_dict() for e in st.events if e.time >= now - timedelta(hours=1) and e.impact == "High"][:15]
+    return {
+        "enabled": True, "fetched_at": st.fetched_at.isoformat() if st.fetched_at else None,
+        **veto_status(st.events, now, s.news_blackout_before_min, s.news_blackout_after_min),
+        "fear_greed": st.fear_greed, "fear_greed_label": st.fear_greed_label,
+        "sentiment": fng_sentiment(st.fear_greed), "high_impact_events": upcoming,
+        "errors": st.errors, "not_connected_sources": MISSING_SOURCES,
+    }
+
+
+@router.get("/arbitrage")
+def arbitrage(request: Request) -> dict:
+    """Arbitraj gözlem raporu (BOT04 kaynağı). Gözlem modu: işlem yapılmaz."""
+    svc = getattr(request.app.state, "arbitrage", None)
+    if svc is None:
+        return {"enabled": False}
+    st = svc.state
+    return {
+        "enabled": True, "mode": "gozlem", "checked_at": st.checked_at.isoformat() if st.checked_at else None,
+        "best": st.best(), "triangular": st.triangular, "cross_exchange": st.cross, "errors": st.errors,
+        "note": "Net değerler komisyon sonrasıdır; borsalar arası transfer ücreti ve süresi dahil değildir.",
+    }
