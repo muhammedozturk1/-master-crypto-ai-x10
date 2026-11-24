@@ -145,6 +145,12 @@ class Settings(BaseSettings):
     symbol_whitelist: list[str] = []
     symbol_blacklist: list[str] = []
 
+    # Bot çalıştırıcı
+    runner_enabled: bool = True
+    runner_timeframes: list[str] = ["15m", "1h"]
+    runner_concurrency: int = Field(default=4, ge=1, le=10)
+    taker_fee_pct: float = 0.055  # Bybit USDT perpetual taker komisyonu (tek yön, %)
+
     risk: RiskLimits = RiskLimits()
 
     @model_validator(mode="after")

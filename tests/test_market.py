@@ -132,7 +132,7 @@ def test_scanner_top_n_and_blacklist():
 @pytest.fixture
 def api(tmp_path, monkeypatch):
     from app.main import app
-    settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/m.db", scanner_enabled=False)
+    settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/m.db", scanner_enabled=False, runner_enabled=False)
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     app.dependency_overrides[get_settings] = lambda: settings
     app.state.market = FakeBybit().client()

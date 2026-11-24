@@ -1,16 +1,16 @@
 """10 çalışan botun kimlikleri ve rolleri (şartname bölüm 2).
 
 Botlar analiz yapar, sinyal üretir; hiçbiri kendi başına işlem açamaz.
-Strateji kodları Aşama 3'te eklenecek; o zamana kadar her bot
-`implemented=False` olarak raporlanır ve sinyal üretmez.
+Strateji kodu yazılan botlar IMPLEMENTATIONS sözlüğüne kaydedilir; kayıtlı
+olmayan botlar `/bots` ekranında `implemented=False` görünür ve sinyal üretmez.
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from app.domain.signals import Signal
+from app.bots.base import WorkerBot
+from app.bots.bot10_nr7 import Nr7Bot
 
 
 @dataclass(frozen=True)
@@ -37,16 +37,6 @@ BOTS: tuple[BotInfo, ...] = (
 
 BOTS_BY_ID = {b.bot_id: b for b in BOTS}
 
-
-class WorkerBot(ABC):
-    """Tüm sinyal botlarının ortak arayüzü."""
-
-    info: BotInfo
-
-    @abstractmethod
-    async def analyze(self, symbol: str) -> list[Signal]:
-        """Verilen sembol için kapanmış mumlarla analiz yapıp sinyal döndürür."""
-
-
-# Aşama 3'te gerçek bot sınıfları buraya kaydedilecek: {"BOT10": Nr7Bot, ...}
-IMPLEMENTATIONS: dict[str, type[WorkerBot]] = {}
+IMPLEMENTATIONS: dict[str, type[WorkerBot]] = {
+    "BOT10": Nr7Bot,
+}

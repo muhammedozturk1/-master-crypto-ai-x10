@@ -9,7 +9,7 @@ TOKEN = "test-token-123"
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/t.db", dashboard_token=TOKEN, scanner_enabled=False)
+    settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/t.db", dashboard_token=TOKEN, scanner_enabled=False, runner_enabled=False)
     get_settings.cache_clear()
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     app.dependency_overrides[get_settings] = lambda: settings
@@ -29,7 +29,8 @@ def test_ten_bots_registered(client):
     bots = client.get("/bots").json()
     assert [b["bot_id"] for b in bots] == [f"BOT{i:02d}" for i in range(1, 11)]
     assert all(b["enabled"] for b in bots)
-    assert not any(b["implemented"] for b in bots)  # stratejiler Aşama 3'te
+    implemented = {b["bot_id"] for b in bots if b["implemented"]}
+    assert implemented == {"BOT10"}  # diğer stratejiler Aşama 3'ün devamında
 
 
 def test_write_requires_token(client):
@@ -60,7 +61,7 @@ def test_kill_switch_and_resume_are_audited(client):
 
 
 def test_writes_disabled_without_token_config(tmp_path, monkeypatch):
-    settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/t2.db", scanner_enabled=False)
+    settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/t2.db", scanner_enabled=False, runner_enabled=False)
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     app.dependency_overrides[get_settings] = lambda: settings
     with TestClient(app) as c:

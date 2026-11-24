@@ -41,6 +41,8 @@ class Signal(BaseModel):
     reason: str
     data_quality: DataQuality = DataQuality.IYI
     risk_warnings: list[str] = []
+    # Stratejiye özel ayrıntılar (ör. NR7 High/Low, hacim oranı) ve tekrar önleme anahtarı
+    details: dict = {}
 
     @model_validator(mode="after")
     def check_levels(self) -> "Signal":

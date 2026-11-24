@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -35,9 +35,21 @@ def get_engine() -> Engine:
     return _engine
 
 
+def _migrate(engine: Engine) -> None:
+    """Mevcut tablolara sonradan eklenen sütunlar (create_all eski tabloları değiştirmez)."""
+    insp = inspect(engine)
+    if "signals" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("signals")}
+        with engine.begin() as conn:
+            if "dedup_key" not in cols:
+                conn.execute(text("ALTER TABLE signals ADD COLUMN dedup_key VARCHAR(160)"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_signals_dedup ON signals (dedup_key)"))
+
+
 def init_db() -> None:
     """Tabloları oluşturur, 10 botu ve sistem durumunu ilk kez kaydeder."""
     Base.metadata.create_all(get_engine())
+    _migrate(get_engine())
     with session_scope() as s:
         existing = set(s.scalars(select(BotState.bot_id)))
         for bot in BOTS:

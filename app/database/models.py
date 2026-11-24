@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 PRICE = Numeric(28, 10)
@@ -37,7 +37,9 @@ class BotState(Base):
 
 class SignalRecord(Base):
     __tablename__ = "signals"
+    __table_args__ = (Index("uq_signals_dedup", "dedup_key", unique=True),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    dedup_key: Mapped[str | None] = mapped_column(String(160))
     bot_id: Mapped[str] = mapped_column(ForeignKey("bot_state.bot_id"), index=True)
     strategy_id: Mapped[str] = mapped_column(String(64))
     symbol: Mapped[str] = mapped_column(String(32), index=True)

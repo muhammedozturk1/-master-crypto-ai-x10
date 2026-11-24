@@ -12,7 +12,7 @@ Varsayılan mod **PAPER** (Bybit demo hesabı). Canlı mod iki ayrı açık onay
 | --- | --- | --- |
 | 1 | Mimari, ayarlar, veritabanı, API iskeleti | Tamamlandı |
 | 2 | Bybit veri bağlantısı ve coin tarayıcı | Tamamlandı |
-| 3 | 10 botun stratejileri | Sırada |
+| 3 | 10 botun stratejileri | Devam ediyor (indikatörler, BOT10 NR7 ve bot döngüsü hazır) |
 | 4 | Ana robot karar motoru | Bekliyor |
 | 5 | Risk ve sermaye | Bekliyor |
 | 6 | Emir ve pozisyon yönetimi | Bekliyor |
@@ -22,8 +22,22 @@ Varsayılan mod **PAPER** (Bybit demo hesabı). Canlı mod iki ayrı açık onay
 | 10 | Testler ve güvenlik incelemesi | Bekliyor |
 | 11 | Canlıya hazırlık | Bekliyor |
 
-Şu an botlar kayıtlı ama strateji kodu yok: `/bots` her birini `implemented: false` gösterir
-ve hiçbir bot sinyal üretmez. Borsaya henüz emir gönderilmez.
+Strateji kodu yazılan botlar `/bots` ekranında `implemented: true` görünür. Şu an yalnızca
+BOT10 (NR7) sinyal üretiyor; diğerleri sırayla eklenecek. Botlar işlem açmaz, sinyalleri
+kaydeder; işlem kararı Aşama 4'te ana robota ait olacak. Borsaya henüz emir gönderilmez.
+
+**Bot döngüsü:** 15 dakikalık ve 1 saatlik mum kapandıktan 8 saniye sonra, coin
+tarayıcının son 30 adayı için kapanmış mumları çeker, veri kalitesini kontrol eder ve açık
+botları çalıştırır. Aynı sinyal ikinci kez kaydedilmez.
+
+**BOT10 – NR7:** Son mumun aralığı önceki 6 mumun her birinden küçükse NR7 kaydedilir ve
+sonraki 3 kapanmış mum izlenir. Kırılım yalnızca kapanışla sayılır. Hacim önceki 20 mumun
+ortalamasının altındaysa, fiyat kırılım seviyesinden 1 ATR'den fazla uzaklaşmışsa, stop
+%4'ten genişse veya spread anormalse sinyal iptal edilir. Stop NR7'nin karşı ucunun 0,1 ATR
+ötesinde; hedef, komisyon ve spread düşüldükten sonra 1:2 ödül/risk verecek şekilde
+hesaplanır. EMA trendi, inside bar, Bollinger/ATR sıkışması, hacim gücü ve üst zaman dilimi
+yönü güven puanını artırır ya da düşürür. Kırılımdan sonraki 3 mum içinde başarılı retest
+ayrı sinyal üretir.
 
 Aşama 2 ile sistem Bybit'in herkese açık uçlarından gerçek fiyat, mum ve emir defteri
 verisini okur (API anahtarı gerekmez). Coin tarayıcı 5 dakikada bir çalışır: işlem gören
@@ -84,5 +98,8 @@ Bybit API anahtarına **para çekme yetkisi vermeyin**.
 | `GET /audit` | Ayar ve sistem olay kaydı |
 | `GET /market/scan` | Son coin taraması: adaylar ve elenme nedenleri |
 | `GET /market/candles/{symbol}?timeframe=15m&limit=100` | Kapanmış mumlar ve veri kalitesi |
+| `GET /signals` | Son işlem sinyalleri (`include_wait=true` ile bekleme sinyalleri de) |
+| `GET /nr7` | NR7 tarayıcı: tespit edilen pariteler, seviyeler, kırılım durumu |
+| `GET /runner` | Son bot turlarının raporu |
 
 Yazma uçları `X-Dashboard-Token` başlığı ister.

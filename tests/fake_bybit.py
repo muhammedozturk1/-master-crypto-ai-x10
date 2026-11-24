@@ -45,8 +45,9 @@ def tickers_payload(now_ms: int) -> tuple[list[dict], list[dict]]:
 
 
 class FakeBybit:
-    def __init__(self, fail_first: int = 0, ret_code: int = 0):
+    def __init__(self, fail_first: int = 0, ret_code: int = 0, kline_rows=None):
         self.calls: list[str] = []
+        self.kline_rows = kline_rows  # (symbol, interval, limit) -> satırlar
         self.fail_first = fail_first
         self.ret_code = ret_code
 
@@ -60,7 +61,11 @@ class FakeBybit:
         now = int(time.time() * 1000)
         path, q = request.url.path, request.url.params
         if path == "/v5/market/kline":
-            rows = make_klines(int(q["limit"]), int(q["interval"]))
+            rows = None
+            if self.kline_rows:
+                rows = self.kline_rows(q["symbol"], q["interval"], int(q["limit"]))
+            if rows is None:
+                rows = make_klines(int(q["limit"]), int(q["interval"]))
             return httpx.Response(200, json={"retCode": 0, "result": {"list": rows}})
         tickers, instruments = tickers_payload(now)
         if path == "/v5/market/tickers":
