@@ -6,6 +6,7 @@ from decimal import Decimal as D
 
 import httpx
 import pytest
+from sqlalchemy import select
 
 from app.bots.bot09_execution import ExecutionService
 from app.config import Settings
@@ -24,7 +25,7 @@ PLAN = {"strategy": "nr7_breakout", "bot_id": "BOT10", "entry_low": "99.5", "ent
 
 @pytest.fixture
 def settings(tmp_path):
-    s = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/x.db")
+    s = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/x.db", entry_order_type="market")
     dbs.configure(s.sqlalchemy_url)
     dbs.init_db()
     with dbs.session_scope() as ss:
@@ -300,3 +301,163 @@ def test_sim_profit_locked_then_exit_with_profit(settings):
     with dbs.session_scope() as s:
         p = s.get(Position, pid)
         assert p.status == "KAPALI" and p.realized_net_pnl > 0 and p.last_price == locked and p.lock_state == 5
+
+
+# --- Limit (maker) giriş --------------------------------------------------------
+
+def limit_exec(settings, fake, bid="99.9", ask="100"):
+    settings.entry_order_type = "limit"
+    ob = {"bids": [[bid, "5"]], "asks": [[ask, "5"]]}
+    public = FakeBybit(kline_rows=lambda s, i, n: flat_rows(ask, n), orderbook=ob).client()
+    broker = BybitBroker(fake.client(), public, "BYBIT_DEMO", D("0.055"))
+    return ExecutionService(broker, settings, poll_attempts=2, poll_delay=0, limit_poll_sec=0.01)
+
+
+def test_limit_entry_posts_maker_at_plan_price_and_records_fill(settings):
+    fake = FakeBybitPrivate()
+    ex = limit_exec(settings, fake)
+
+    async def go():
+        r = await ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN, D("0.001"), D("0.1"), "15m")
+        assert r["status"] == "BEKLIYOR" and D(r["price"]) == D("99.9")   # plan 100, en iyi alış 99.9 → 99.9
+        create = [p for path, p in fake.calls if path == "/v5/order/create"][-1]
+        assert create["orderType"] == "Limit" and create["timeInForce"] == "PostOnly"
+        assert create["stopLoss"] == "98" and create["takeProfit"] == "105"
+        assert ex.pending_symbols() == {"BTCUSDT"}
+        # dolmadan önce aynı paritede / sınır aşan yeni emir yok
+        r2 = await ex.open_from_decision(2, "BTCUSDT", "LONG", PLAN, None, None, "15m")
+        assert r2["status"] == "ATLANDI"
+        fake.fill_limit("x10-1-E")
+        await ex.wait_pending()
+    run(go())
+    with dbs.session_scope() as s:
+        p = s.scalars(select(Position)).one()
+        assert p.entry_price == D("99.9") and p.venue == "BYBIT_DEMO"
+        assert p.entry_fee < p.qty * p.entry_price * D("0.00055")                 # maker komisyonu
+        o = s.scalars(select(Order)).one()
+        assert o.status == "DOLDU" and o.order_type == "Limit"
+
+
+def test_limit_entry_cancelled_after_timeout(settings, monkeypatch):
+    import app.bots.bot09_execution as bx
+    monkeypatch.setitem(bx.LIMIT_WAIT_SEC, "15m", 0.05)
+    fake = FakeBybitPrivate()
+    ex = limit_exec(settings, fake)
+
+    async def go():
+        r = await ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN, None, None, "15m")
+        assert r["status"] == "BEKLIYOR"
+        await ex.wait_pending()
+    run(go())
+    assert fake.count("/v5/order/cancel") == 1
+    with dbs.session_scope() as s:
+        assert s.scalars(select(Position)).first() is None
+        assert s.scalars(select(Order)).one().status == "IPTAL"
+    assert system()[1] is False
+
+
+def test_limit_partial_fill_then_timeout_keeps_partial_position(settings, monkeypatch):
+    import app.bots.bot09_execution as bx
+    monkeypatch.setitem(bx.LIMIT_WAIT_SEC, "15m", 0.05)
+    fake = FakeBybitPrivate()
+    ex = limit_exec(settings, fake)
+
+    async def go():
+        await ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN, None, None, "15m")
+        fake.fill_limit("x10-1-E", "0.2")
+        await ex.wait_pending()
+    run(go())
+    with dbs.session_scope() as s:
+        p = s.scalars(select(Position)).one()
+        assert p.qty == D("0.2") and s.scalars(select(Order)).one().status == "KISMI"
+
+
+def test_limit_entry_does_not_chase_when_price_ran(settings):
+    """Fiyat plan girişinin üstüne kaçtıysa emir plan fiyatında bekler (piyasa modunda atlanırdı)."""
+    fake = FakeBybitPrivate()
+    ex = limit_exec(settings, fake, bid="100.6", ask="100.7")
+
+    async def go():
+        r = await ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN, None, D("0.1"), "15m")
+        assert r["status"] == "BEKLIYOR" and D(r["price"]) == D("100")
+        ex.pending["x10-1-E"].cancel()
+        await ex.wait_pending()
+    run(go())
+
+
+def test_kill_switch_cancels_pending_limit(settings):
+    fake = FakeBybitPrivate()
+    ex = limit_exec(settings, fake)
+
+    async def go():
+        await ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN, None, None, "1h")
+        with dbs.session_scope() as s:
+            s.get(SystemState, 1).trading_enabled = False
+        await ex.wait_pending()
+    run(go())
+    assert fake.count("/v5/order/cancel") == 1
+    with dbs.session_scope() as s:
+        assert s.scalars(select(Order)).one().status == "IPTAL"
+
+
+def test_recover_pending_after_restart(settings):
+    fake = FakeBybitPrivate()
+    ex = limit_exec(settings, fake)
+    with dbs.session_scope() as s:
+        s.get(Decision, 1).plan = PLAN
+
+    async def place():
+        await ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN, None, None, "1h")
+        fake.fill_limit("x10-1-E")
+        ex.pending["x10-1-E"].cancel()                 # sunucu yeniden başladı: izleyici öldü
+        await ex.wait_pending()
+    run(place())
+    ex2 = limit_exec(settings, fake)
+    res = run(ex2.recover_pending())
+    assert res[0]["status"] == "DOLDU"
+    with dbs.session_scope() as s:
+        assert s.scalars(select(Position)).one().qty == D("0.5")
+
+
+def test_monitor_does_not_flag_pending_fill_as_orphan(settings):
+    from app.engines.position_monitor import PositionMonitor
+    fake = FakeBybitPrivate()
+    ex = limit_exec(settings, fake)
+
+    async def go():
+        await ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN, None, None, "1h")
+        fake.fill_limit("x10-1-E")                      # borsada pozisyon var, kayıt henüz yok
+        await PositionMonitor(ex, 15)._reconcile(set())
+        ex.pending["x10-1-E"].cancel()
+        await ex.wait_pending()
+    run(go())
+    assert system()[1] is False
+
+
+def test_round_tick_direction():
+    from app.bots.bot09_execution import _round_tick
+    assert _round_tick(D("100.07"), D("0.05"), down=True) == D("100.05")
+    assert _round_tick(D("100.07"), D("0.05"), down=False) == D("100.1")
+    assert _round_tick(D("100.07"), None, down=True) == D("100.07")
+
+
+def test_sim_limit_fills_only_after_price_touches(settings):
+    import time
+    now = int(time.time() * 1000)
+    minute = now - now % 60_000
+    rows = {"v": [[str(minute), "100.5", "100.6", "100.4", "100.5", "1", "0"]]}
+    public = FakeBybit(kline_rows=lambda s, i, n: rows["v"]).client()
+    sim = SimBroker(public, D("0.055"), D("0.02"))
+
+    async def go():
+        await sim.place_limit("BTCUSDT", True, D("1"), D("100"), "c1", D("98"), D("105"))
+        assert (await sim.order_status("c1")).status == "OPEN"
+        # yerleştirme dakikasındaki dip sayılmaz; sonraki dakika limite değdi
+        rows["v"] = [[str(minute + 60_000), "100.3", "100.4", "99.95", "100.2", "1", "0"],
+                     [str(minute), "100.5", "100.6", "99.0", "100.5", "1", "0"]]
+        f = await sim.order_status("c1")
+        assert f.status == "FILLED" and f.avg_price == D("100") and f.fee == D("0.02")
+        await sim.place_limit("BTCUSDT", False, D("1"), D("101"), "c2", D("103"), D("97"))
+        await sim.cancel("BTCUSDT", "c2")
+        assert (await sim.order_status("c2")).status == "REJECTED"
+    run(go())

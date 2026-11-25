@@ -197,7 +197,8 @@ class PositionMonitor:
         except BybitError as exc:
             log.warning("Uzlaştırma yapılamadı: %s", exc)
             return
-        orphan = ex - db_symbols
+        # Limit emri doldu ama pozisyon kaydı birkaç saniye sonra yazılacak: sahipsiz sayılmaz
+        orphan = ex - db_symbols - self.x.pending_symbols()
         if orphan:
             safe_mode(f"borsada kayıtsız pozisyon: {', '.join(sorted(orphan))}", {"orphan": sorted(orphan)})
 

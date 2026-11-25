@@ -45,7 +45,7 @@ def build_executor(settings, market):
     if settings.mode == TradingMode.AUTONOMOUS_LIVE:
         log.error("Canlı modda API anahtarı yok: emir katmanı kapalı")
         return None
-    return ExecutionService(SimBroker(market, fee), settings)
+    return ExecutionService(SimBroker(market, fee, Decimal(str(settings.maker_fee_pct))), settings)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("x10")
@@ -167,6 +167,13 @@ async def lifespan(app: FastAPI):
     if app.state.execution and app.state.key_check.get("ok") is False:
         await app.state.execution.b.p.close()
         app.state.execution = None
+    if app.state.execution:
+        try:
+            rec = await app.state.execution.recover_pending()
+            if rec:
+                log.warning("Açılışta bekleyen giriş emirleri işlendi: %s", rec)
+        except Exception:  # noqa: BLE001
+            log.exception("Bekleyen emir kurtarma hatası")
     from app.notifications.telegram import TelegramNotifier, install
     app.state.notifier = (TelegramNotifier(settings.telegram_bot_token, settings.telegram_chat_id)
                           if settings.telegram_bot_token and settings.telegram_chat_id else None)

@@ -52,6 +52,13 @@ class FakeBybitPrivate:
             return httpx.Response(200, json={"retCode": 110043, "retMsg": "leverage not modified", "result": {}})
         if path == "/v5/order/create":
             link, sym, side, qty = params["orderLinkId"], params["symbol"], params["side"], Decimal(params["qty"])
+            if params.get("orderType") == "Limit":
+                assert params.get("timeInForce") == "PostOnly"
+                self.orders[link] = {"orderId": f"oid-{link}", "orderLinkId": link, "orderStatus": "New",
+                                     "cumExecQty": "0", "avgPrice": "", "cumExecFee": "0", "symbol": sym,
+                                     "side": side, "qty": str(qty), "price": params["price"],
+                                     "stopLoss": params.get("stopLoss", ""), "takeProfit": params.get("takeProfit", "")}
+                return ok({"orderId": f"oid-{link}", "orderLinkId": link})
             if not self.lose_order:
                 self.orders[link] = {"orderId": f"oid-{link}", "orderLinkId": link, "orderStatus": "Filled",
                                      "cumExecQty": str(qty), "avgPrice": str(self.fill_price),
@@ -69,6 +76,12 @@ class FakeBybitPrivate:
             if self.timeout_on_create:
                 raise httpx.ReadTimeout("simüle zaman aşımı", request=req)
             return ok({"orderId": f"oid-{link}", "orderLinkId": link})
+        if path == "/v5/order/cancel":
+            o = self.orders.get(params["orderLinkId"])
+            if o is None or o["orderStatus"] in ("Filled", "Cancelled", "PartiallyFilledCanceled"):
+                return httpx.Response(200, json={"retCode": 110001, "retMsg": "order not exists or too late to cancel", "result": {}})
+            o["orderStatus"] = "PartiallyFilledCanceled" if Decimal(o["cumExecQty"]) > 0 else "Cancelled"
+            return ok({"orderLinkId": o["orderLinkId"]})
         if path in ("/v5/order/realtime", "/v5/order/history"):
             o = self.orders.get(params.get("orderLinkId", ""))
             return ok({"list": [o] if o else []})
@@ -98,6 +111,17 @@ class FakeBybitPrivate:
             "cumExitValue": str(size * exit_price), "avgExitPrice": str(exit_price),
             "closedPnl": str((exit_price - entry) * size), "openFee": str(size * entry * Decimal("0.00055")),
             "closeFee": str(size * exit_price * Decimal("0.00055"))})
+
+    def fill_limit(self, link: str, qty: str | None = None) -> None:
+        """Limit emri (tamamen veya kısmen) limit fiyatından maker olarak doldur."""
+        o = self.orders[link]
+        q = Decimal(qty) if qty is not None else Decimal(o["qty"])
+        px = Decimal(o["price"])
+        o.update(cumExecQty=str(q), avgPrice=str(px), cumExecFee=str(q * px * Decimal("0.0002")),
+                 orderStatus="Filled" if q == Decimal(o["qty"]) else "PartiallyFilled")
+        self.positions[o["symbol"]] = {"symbol": o["symbol"], "side": o["side"], "size": str(q), "avgPrice": str(px),
+                                       "markPrice": str(px), "stopLoss": o["stopLoss"] if self.stop_supported else "",
+                                       "takeProfit": o["takeProfit"]}
 
     def stop_out(self, sym: str, exit_price: str) -> None:
         """Borsa tarafında stop tetiklenmiş gibi pozisyonu kapat."""

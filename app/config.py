@@ -6,6 +6,8 @@ tavanları vardır: .env ile bu tavanların üstüne çıkılamaz, uygulama aç�
 
 from __future__ import annotations
 
+from typing import Literal
+
 from decimal import Decimal
 from enum import Enum
 from functools import lru_cache
@@ -158,6 +160,10 @@ class Settings(BaseSettings):
     arbitrage_enabled: bool = True
     footprint_enabled: bool = True   # websocket işlem akışı (BOT01 footprint stratejisi)
     runner_concurrency: int = Field(default=4, ge=1, le=10)
+    # Giriş emri: "limit" = plan fiyatına PostOnly limit (maker komisyonu, fiyat kovalanmaz;
+    # süre dolunca iptal) | "market" = piyasa emri (taker)
+    entry_order_type: Literal["limit", "market"] = "limit"
+    maker_fee_pct: float = 0.02     # Bybit USDT perpetual maker komisyonu (tek yön, %)
     taker_fee_pct: float = 0.055  # Bybit USDT perpetual taker komisyonu (tek yön, %)
 
     risk: RiskLimits = RiskLimits()

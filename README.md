@@ -289,3 +289,12 @@ Bybit API anahtarına **para çekme yetkisi vermeyin**.
 | `GET /master` | Ana robot özeti: son karar, 24 saatlik dağılım, veto ve bot ağırlıkları |
 
 Yazma uçları `X-Dashboard-Token` başlığı ister.
+
+### Giriş emri: limit (maker)
+BOT09 girişleri varsayılan olarak plan fiyatına **PostOnly limit emir** ile yapar (maker
+komisyonu %0,02; piyasa emrinde taker %0,055). Fiyat kaçtıysa emir kovalanmaz, plan fiyatında
+bekler: 5m kararlarda 2 dk, 15m'de 5 dk, 1h'de 15 dk. Dolmazsa iptal edilir; kısmen dolduysa o
+kadarı pozisyon olur. Stop ve hedef emre bağlıdır, dolduğu anda borsada geçerlidir. Bekleyen emir
+pozisyon sınırına sayılır; acil durdurmada iptal edilir; sunucu yeniden başlarsa açılışta
+kurtarılır. Backtest hâlâ sonraki mumun açılışından taker girişi varsayar (muhafazakâr).
+`ENTRY_ORDER_TYPE=market` ile eski davranışa dönülür.

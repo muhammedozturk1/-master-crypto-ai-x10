@@ -235,6 +235,7 @@ def orders(limit: int = Query(50, ge=1, le=500), session: Session = Depends(get_
              "position_id": o.position_id, "symbol": o.symbol, "side": o.side, "purpose": o.purpose,
              "qty": str(o.qty), "filled_qty": str(o.filled_qty),
              "avg_fill_price": str(o.avg_fill_price) if o.avg_fill_price is not None else None,
+             "order_type": o.order_type, "price": str(o.price) if o.price is not None else None,
              "status": o.status, "created_at": o.created_at.isoformat()}
             for o in session.scalars(select(Order).order_by(Order.id.desc()).limit(limit))]
 

@@ -109,9 +109,12 @@ class BybitPrivate:
     # --- Emir -----------------------------------------------------------
     async def create_order(self, symbol: str, side: str, qty: Decimal, order_link_id: str,
                            stop_loss: Decimal | None = None, take_profit: Decimal | None = None,
-                           reduce_only: bool = False) -> dict:
+                           reduce_only: bool = False, limit_price: Decimal | None = None) -> dict:
+        """limit_price verilirse PostOnly limit emir (yalnız maker; karşı tarafı alacaksa borsa reddeder)."""
         p = {"category": self.category, "symbol": symbol, "side": side, "orderType": "Market",
              "qty": str(qty), "orderLinkId": order_link_id, "positionIdx": 0, "timeInForce": "IOC"}
+        if limit_price is not None:
+            p.update({"orderType": "Limit", "price": str(limit_price), "timeInForce": "PostOnly"})
         if reduce_only:
             p["reduceOnly"] = True
         else:
@@ -120,6 +123,12 @@ class BybitPrivate:
             if take_profit is not None:
                 p.update({"takeProfit": str(take_profit), "tpTriggerBy": "LastPrice", "tpslMode": "Full"})
         return await self._call("POST", "/v5/order/create", p)
+
+    async def cancel_order(self, symbol: str, order_link_id: str) -> None:
+        """Emir iptali. Emir zaten dolmuş/iptal edilmişse (110001) hata sayılmaz; durum ayrıca sorgulanır."""
+        await self._call("POST", "/v5/order/cancel",
+                         {"category": self.category, "symbol": symbol, "orderLinkId": order_link_id},
+                         ok_codes=(0, 110001))
 
     async def get_order(self, order_link_id: str) -> dict | None:
         res = await self._call("GET", "/v5/order/realtime",

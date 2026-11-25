@@ -46,8 +46,9 @@ def tickers_payload(now_ms: int) -> tuple[list[dict], list[dict]]:
 
 
 class FakeBybit:
-    def __init__(self, fail_first: int = 0, ret_code: int = 0, kline_rows=None):
+    def __init__(self, fail_first: int = 0, ret_code: int = 0, kline_rows=None, orderbook=None):
         self.calls: list[str] = []
+        self.orderbook = orderbook    # {"bids": [[px, qty]], "asks": [[px, qty]]} ile en iyi fiyatlar
         self.kline_rows = kline_rows  # (symbol, interval, limit) -> satırlar
         self.fail_first = fail_first
         self.ret_code = ret_code
@@ -76,6 +77,8 @@ class FakeBybit:
             return httpx.Response(200, json={"retCode": 0, "result": {"list": tickers}})
         if path == "/v5/market/instruments-info":
             return httpx.Response(200, json={"retCode": 0, "result": {"list": instruments, "nextPageCursor": ""}})
+        if path == "/v5/market/orderbook" and self.orderbook:
+            return httpx.Response(200, json={"retCode": 0, "result": {"b": self.orderbook["bids"], "a": self.orderbook["asks"], "ts": now}})
         if path == "/v5/market/orderbook":
             return httpx.Response(200, json={"retCode": 0, "result": {"b": [["99.9", "10"], ["99.0", "5"]], "a": [["100.1", "8"], ["101.5", "3"]], "ts": now}})
         # Bybit gibi en yeniden eskiye

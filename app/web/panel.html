@@ -435,8 +435,9 @@ function renderBots(bots, sigs) {
   }));
 }
 
-function renderPositions(ps) {
+function renderPositions(ps, orders) {
   S.pos = ps;
+  const waiting = (orders || []).filter(o => o.purpose === "GIRIS" && o.status === "BEKLIYOR");
   const open = ps.filter(p => p.status !== "KAPALI"), recent = ps.filter(p => p.status === "KAPALI").slice(0, 5);
   const rows = [...open, ...recent].map(p => {
     const isOpen = p.status !== "KAPALI", pnl = isOpen ? p.unrealized_net_pnl : p.realized_net_pnl;
@@ -447,6 +448,11 @@ function renderPositions(ps) {
       el("td", {}, LOCK[p.lock_state] ?? "—"), el("td", {class: "num " + cls(pnl)}, usd(pnl)),
       el("td", {}, isOpen ? el("button", {class: "small danger", type: "button", onclick: () => closePos(p.id, p.symbol)}, "Kapat") : "kapandı"));
   });
+  const wrows = waiting.map(o => el("tr", {class: "new"},
+      el("td", {}, el("b", {}, o.symbol), el("div", {class: "muted"}, "limit giriş emri")), el("td", {class: o.side === "Buy" ? "pos" : "neg"}, o.side === "Buy" ? "LONG" : "SHORT"),
+      el("td", {class: "num"}, o.qty), el("td", {class: "num"}, pfmt(o.price)), el("td", {class: "num"}, pfmt(S.prices[o.symbol])),
+      el("td", {colspan: "5"}, el("span", {class: "pill warn"}, el("span", {class: "dot"}), "Bekliyor: fiyat limit seviyesine gelirse dolacak")), el("td", {}, "")));
+  rows.unshift(...wrows);
   put("w_pos", rows.length ? rows : [el("tr", {}, el("td", {colspan: "11", class: "muted"}, "Açık pozisyon yok. Ana robot 75+ puan ve risk onayı bekliyor."))]);
   put("m_pos", (open.length ? open : []).map(p => el("div", {class: "mcard"},
       el("div", {style: "display:flex;justify-content:space-between;align-items:center"}, el("b", {style: "font-size:17px"}, p.symbol + " " + p.side),
@@ -454,7 +460,10 @@ function renderPositions(ps) {
       el("div", {class: "num muted"}, "giriş " + pfmt(p.entry_price) + " · anlık " + pfmt(S.prices[p.symbol] || p.last_price)),
       el("div", {class: "num muted"}, "stop " + pfmt(p.current_stop) + " · hedef " + pfmt(p.take_profit) + " · " + (LOCK[p.lock_state] ?? "")),
       el("button", {class: "danger", type: "button", onclick: () => closePos(p.id, p.symbol)}, "Pozisyonu kapat")))
-    .concat(open.length ? [] : [el("div", {class: "mcard muted"}, "Açık pozisyon yok. Ana robot 75+ puan ve risk onayı bekliyor.")]));
+    .concat(waiting.map(o => el("div", {class: "mcard"}, el("div", {style: "display:flex;justify-content:space-between"},
+        el("b", {}, o.symbol + " " + (o.side === "Buy" ? "LONG" : "SHORT")), el("span", {class: "pill warn"}, el("span", {class: "dot"}), "Limit emir bekliyor")),
+        el("div", {class: "num muted"}, "limit " + pfmt(o.price) + " · anlık " + pfmt(S.prices[o.symbol]) + " · miktar " + o.qty))))
+    .concat(open.length || waiting.length ? [] : [el("div", {class: "mcard muted"}, "Açık pozisyon yok. Ana robot 75+ puan ve risk onayı bekliyor.")]));
 }
 
 function renderDecisions(ds) {
@@ -504,10 +513,10 @@ async function fast() {
 }
 async function slow() {
   try {
-    const [h, p, risk, m, bots, pos, dec, nr7, cal, perf, bt, run, hist, sigs] = await Promise.all([
+    const [h, p, risk, m, bots, pos, dec, nr7, cal, perf, bt, run, hist, sigs, ords] = await Promise.all([
       api("/health"), api("/portfolio"), api("/risk"), api("/master"), api("/bots"), api("/positions?limit=30"), api("/decisions?limit=25"),
-      api("/nr7"), api("/calendar"), api("/performance"), api("/backtest"), api("/runner"), api("/portfolio/history?hours=48"), api("/signals?limit=150")]);
-    renderHeader(h, risk); renderMoney(p, risk, hist, cal, run); renderMaster(m); renderBots(bots, sigs); renderPositions(pos);
+      api("/nr7"), api("/calendar"), api("/performance"), api("/backtest"), api("/runner"), api("/portfolio/history?hours=48"), api("/signals?limit=150"), api("/orders?limit=10")]);
+    renderHeader(h, risk); renderMoney(p, risk, hist, cal, run); renderMaster(m); renderBots(bots, sigs); renderPositions(pos, ords);
     renderDecisions(dec); renderSide(nr7, cal); renderPerfBt(perf, bt);
   } catch (e) { if (e.message !== "auth") text("sub", "Bağlantı hatası: " + e.message); }
 }

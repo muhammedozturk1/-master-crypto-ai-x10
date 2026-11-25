@@ -299,10 +299,12 @@ class BotRunner:
             if self.executor is None:
                 res = {"status": "ATLANDI", "reason": "emir katmanı devre dışı"}
             else:
-                step = self._instruments.get(d.symbol, {}).get("qty_step")
+                inst = self._instruments.get(d.symbol, {})
+                step, tick = inst.get("qty_step"), inst.get("tick_size")
                 try:
                     res = await self.executor.open_from_decision(
-                        did, d.symbol, d.direction, d.plan, Decimal(step) if step else None)
+                        did, d.symbol, d.direction, d.plan, Decimal(step) if step else None,
+                        Decimal(tick) if tick and Decimal(tick) > 0 else None, d.timeframe)
                 except Exception as exc:  # noqa: BLE001
                     log.exception("Emir açma hatası (karar %s)", did)
                     res = {"status": "HATA", "reason": str(exc)[:300]}

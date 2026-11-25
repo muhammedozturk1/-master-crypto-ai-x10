@@ -17,7 +17,9 @@ ZERO = Decimal(0)
 
 @dataclass
 class Fill:
-    status: str                     # FILLED / PARTIAL / REJECTED / UNKNOWN / NOT_FOUND
+    status: str                     # FILLED / OPEN / PARTIAL / PARTIAL_DONE / REJECTED / UNKNOWN / NOT_FOUND
+    # OPEN: borsada bekliyor, dolum yok · PARTIAL: kısmen doldu, hâlâ açık
+    # PARTIAL_DONE: kısmen doldu ve kapandı (kalanı iptal) · REJECTED: dolum olmadan kapandı
     filled_qty: Decimal = ZERO
     avg_price: Decimal = ZERO
     fee: Decimal = ZERO
@@ -71,6 +73,20 @@ class BybitBroker:
         res = await self.p.create_order(symbol, side, qty, client_id, stop, tp, reduce_only)
         return Fill("SENT", exchange_order_id=res.get("orderId"))
 
+    async def place_limit(self, symbol: str, long: bool, qty: Decimal, price: Decimal, client_id: str,
+                          stop: Decimal | None, tp: Decimal | None) -> Fill:
+        res = await self.p.create_order(symbol, "Buy" if long else "Sell", qty, client_id, stop, tp, limit_price=price)
+        return Fill("SENT", exchange_order_id=res.get("orderId"))
+
+    async def cancel(self, symbol: str, client_id: str) -> None:
+        await self.p.cancel_order(symbol, client_id)
+
+    async def best_quote(self, symbol: str) -> tuple[Decimal, Decimal]:
+        ob = await self.pub.orderbook(symbol, 1)
+        if not ob.bids or not ob.asks:
+            raise RuntimeError(f"{symbol}: emir defteri boş")
+        return ob.bids[0][0], ob.asks[0][0]
+
     async def order_status(self, client_id: str) -> Fill:
         o = await self.p.get_order(client_id)
         if o is None:
@@ -78,8 +94,17 @@ class BybitBroker:
         filled = Decimal(o.get("cumExecQty") or "0")
         avg = Decimal(o.get("avgPrice") or "0") if o.get("avgPrice") else ZERO
         st = o.get("orderStatus", "")
-        status = ("FILLED" if st == "Filled" else "PARTIAL" if filled > 0 else
-                  "REJECTED" if st in ("Rejected", "Cancelled", "Deactivated") else "UNKNOWN")
+        closed = st in ("Rejected", "Cancelled", "Deactivated", "PartiallyFilledCanceled")
+        if st == "Filled":
+            status = "FILLED"
+        elif filled > 0:
+            status = "PARTIAL_DONE" if closed else "PARTIAL"
+        elif closed:
+            status = "REJECTED"
+        elif st in ("New", "Untriggered", "Created"):
+            status = "OPEN"
+        else:
+            status = "UNKNOWN"
         return Fill(status, filled, avg, _fee(o, filled * avg * self.fee_pct / 100), o.get("orderId"),
                     o.get("rejectReason") if status == "REJECTED" else None)
 
@@ -128,9 +153,10 @@ class SimBroker:
 
     venue = "SIM"
 
-    def __init__(self, public: BybitPublic, taker_fee_pct: Decimal):
-        self.pub, self.fee_pct = public, taker_fee_pct
+    def __init__(self, public: BybitPublic, taker_fee_pct: Decimal, maker_fee_pct: Decimal = Decimal("0.02")):
+        self.pub, self.fee_pct, self.maker_pct = public, taker_fee_pct, maker_fee_pct
         self._orders: dict[str, Fill] = {}
+        self._limits: dict[str, dict] = {}
 
     async def prepare(self, symbol: str, leverage: int) -> None:
         return None
@@ -148,7 +174,34 @@ class SimBroker:
         self._orders[client_id] = f
         return f
 
+    async def best_quote(self, symbol: str) -> tuple[Decimal, Decimal]:
+        return await self._quote(symbol)
+
+    async def place_limit(self, symbol, long, qty, price, client_id, stop, tp) -> Fill:
+        """Limit emir: yerleştirildikten SONRAKİ 1 dk mumlarında fiyat limite değerse limitten,
+        maker komisyonuyla dolar (yerleştirme dakikası sayılmaz: muhafazakâr)."""
+        import time
+        now = int(time.time() * 1000)
+        self._limits[client_id] = {"symbol": symbol, "long": long, "qty": qty, "price": price,
+                                   "after_ms": now - now % 60_000 + 60_000}
+        self._orders[client_id] = Fill("OPEN")
+        return Fill("SENT", exchange_order_id=f"sim-{client_id}")
+
+    async def cancel(self, symbol: str, client_id: str) -> None:
+        await self.order_status(client_id)          # son bir dolum kontrolü
+        if self._orders.get(client_id, Fill("NOT_FOUND")).status == "OPEN":
+            self._orders[client_id] = Fill("REJECTED", error="iptal edildi")
+        self._limits.pop(client_id, None)
+
     async def order_status(self, client_id: str) -> Fill:
+        lim = self._limits.get(client_id)
+        if lim and self._orders[client_id].status == "OPEN":
+            cs = await self.pub.klines(lim["symbol"], "1", 30)
+            px = lim["price"]
+            if any(c.start_ms >= lim["after_ms"] and ((c.low <= px) if lim["long"] else (c.high >= px)) for c in cs):
+                self._orders[client_id] = Fill("FILLED", lim["qty"], px, lim["qty"] * px * self.maker_pct / 100,
+                                               f"sim-{client_id}")
+                self._limits.pop(client_id, None)
         return self._orders.get(client_id, Fill("NOT_FOUND"))
 
     async def last_price(self, symbol: str) -> Decimal:
