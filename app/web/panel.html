@@ -367,6 +367,7 @@ function renderHeader(h, risk) {
 }
 
 function renderMoney(p, risk, hist, cal, run) {
+  S.cal = cal;
   const gain = N(p.equity) - N(p.starting_capital);
   for (const k of ["w", "m"]) {
     text(k + "_eq", fmt(p.equity) + " $");
@@ -410,6 +411,16 @@ function renderMaster(m) {
   put("w_dist", el("div", {class: "muted", style: "margin-bottom:6px"}, "Son 24 saat"), chips()); put("m_dist", el("b", {}, "Son 24 saat"), el("div", {}, chips()));
 }
 
+function idleNote(b) {   // sinyal yoksa: botun neden sinyal üretmediği
+  if (b.kind === "guard") return "Katman: işlem sinyali üretmez; ana robotun her kararını denetler (risk, boyut, limitler)";
+  if (b.kind === "service") return "Katman: işlem sinyali üretmez; onaylanan emri Bybit'e iletir ve izler";
+  if (b.bot_id === "BOT04") return "Gözlem modu: borsalar arası fiyat farkını izler; 200 $ ile arbitraj işlemi açmaz";
+  if (b.bot_id === "BOT05") { const c = S.cal; return c && c.veto_active ? "VETO AKTİF: yüksek etkili veri yakın, yeni işlem yok"
+      : "İşlem sinyali üretmez; yalnız haber öncesi/sonrası veto verir" + (c && c.fear_greed != null ? " · korku/açgözlülük " + c.fear_greed : ""); }
+  if (!b.enabled) return "Pasif: karara katılmıyor";
+  return "Şu an kurulum yok: koşullar oluşunca sinyal verir";
+}
+
 function renderBots(bots, sigs) {
   const last = {}; for (const s of sigs) if (!last[s.bot_id]) last[s.bot_id] = s;   // en yeni sinyal
   put("w_bots", bots.map(b => {
@@ -418,7 +429,7 @@ function renderBots(bots, sigs) {
       el("div", {style: "display:flex;justify-content:space-between;gap:6px;align-items:flex-start"},
         el("div", {}, el("div", {class: "muted num"}, b.bot_id), el("b", {style: "font-size:13.5px"}, b.name)),
         s ? el("span", {class: "badge b-" + s.action}, s.action) : el("span", {class: "badge b-BEKLE"}, b.kind === "signal" ? "SİNYAL YOK" : "KATMAN")),
-      el("div", {class: "muted", style: "min-height:34px;font-size:12px"}, s ? s.symbol + " · " + (s.strategy || "").split("+")[0] + " · " + hm(s.created_at) : b.role.slice(0, 70)),
+      el("div", {class: "muted", style: "min-height:34px;font-size:12px"}, s ? s.symbol + " · " + (s.strategy || "").split("+")[0] + " · " + hm(s.created_at) : idleNote(b)),
       el("div", {style: "display:flex;justify-content:space-between;font-size:11px;color:var(--mute)"}, el("span", {}, "Güven"), el("span", {class: "num"}, s ? conf : "—")),
       el("div", {class: "bar"}, el("i", {style: `width:${conf}%;background:${s && s.action === "SAT" ? "var(--orangeb)" : "var(--blueb)"}`})),
       el("div", {class: "num muted", style: "font-size:11.5px"}, "ağırlık " + b.weight + " · sinyal " + b.signals_total + " · kabul " + b.signals_accepted),
@@ -429,8 +440,8 @@ function renderBots(bots, sigs) {
     const s = last[b.bot_id];
     return el("div", {class: "mcard", style: "flex-direction:row;align-items:center;gap:10px" + (b.enabled ? "" : ";opacity:.55")},
       el("div", {style: "flex:1;min-width:0"}, el("b", {}, b.bot_id + " " + b.name),
-         el("div", {class: "muted"}, s ? s.action + " " + s.symbol + " · güven " + s.confidence : "sinyal yok"),
-         el("div", {class: "bar", style: "margin-top:6px"}, el("i", {style: `width:${s ? s.confidence : 0}%`}))),
+         el("div", {class: "muted"}, s ? s.action + " " + s.symbol + " · güven " + s.confidence : idleNote(b)),
+         s ? el("div", {class: "bar", style: "margin-top:6px"}, el("i", {style: `width:${s.confidence}%`})) : null),
       b.implemented && b.kind === "signal" ? el("button", {class: "small", type: "button", onclick: () => toggleBot(b)}, b.enabled ? "Kapat" : "Aç") : null);
   }));
 }
