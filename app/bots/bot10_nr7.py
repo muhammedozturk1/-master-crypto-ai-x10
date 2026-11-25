@@ -28,7 +28,7 @@ class Nr7Params:
     min_volume_ratio: float = 1.0      # kırılım hacmi / önceki 20 mum ortalaması
     max_extension_atr: float = 1.0     # kırılım seviyesinden en fazla 1 ATR uzaklaşmış olabilir
     stop_buffer_atr: float = 0.1
-    target_net_rr: float = 2.0         # maliyetler sonrası hedef ödül/risk
+    target_net_rr: float = 2.05        # maliyetler sonrası hedef ödül/risk (asgari 2,0 + yuvarlama payı)
     max_stop_pct: float = 4.0          # stop mesafesi fiyatın %4'ünden genişse işlem yok
     max_spread_pct: float = 0.10
     retest_tolerance_atr: float = 0.25

@@ -51,7 +51,7 @@ def test_closed_breakout_gives_long_with_net_rr_2():
     assert s.action == Action.AL and s.strategy_id.startswith("nr7_breakout")
     assert s.stop_loss < D("99.75")              # NR7 Low altında tamponlu stop
     assert s.entry_low == D("100.25") and s.entry_high == D("100.6")
-    assert float(s.expected_net_rr) == pytest.approx(2.0, abs=1e-6)
+    assert float(s.expected_net_rr) == pytest.approx(2.05, abs=1e-6)   # asgari 2,0 + yuvarlama payı
     assert s.gross_reward_risk() > 2              # maliyetler yüzünden brüt oran 2'nin üstünde
     assert s.details["volume_ratio"] == 2.0
 
@@ -112,3 +112,16 @@ def test_abnormal_spread_rejected():
 def test_dedup_key_stable():
     cs = flat(78) + [nr7_bar(78), bar(79, 100.1, 100.7, 100.0, 100.6, v=20)]
     assert run(cs)[0].details["dedup_key"] == run(cs)[0].details["dedup_key"]
+
+
+def test_signal_passes_risk_bot_rr_check():
+    """Regresyon: hedef tam 2,0'a konunca BOT07 yuvarlama yüzünden '2,00 < 2' ile reddediyordu."""
+    from app.bots.bot07_risk import TradeRequest
+    from app.config import RiskLimits
+    cs = flat(78) + [nr7_bar(78), bar(79, 100.1, 100.7, 100.0, 100.6, v=20)]
+    [s] = run(cs)
+    entry = s.entry_high if s.action == Action.AL else s.entry_low
+    req = TradeRequest(s.symbol, s.action == Action.AL, entry, s.stop_loss, s.take_profit, s.estimated_cost_pct)
+    cost_unit = req.entry * req.cost_pct / 100
+    rr = (abs(req.target - req.entry) - cost_unit) / (abs(req.entry - req.stop) + cost_unit)
+    assert rr >= RiskLimits().min_reward_risk
