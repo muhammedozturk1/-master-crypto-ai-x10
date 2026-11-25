@@ -461,3 +461,60 @@ def test_sim_limit_fills_only_after_price_touches(settings):
         await sim.cancel("BTCUSDT", "c2")
         assert (await sim.order_status("c2")).status == "REJECTED"
     run(go())
+
+
+def test_closed_pnl_empty_falls_back_to_order_history(settings):
+    """Bybit demo kapanış PnL kaydını boş döndürdü (25.11): emir geçmişindeki tetiklenen stoptan kapanır."""
+    fake = FakeBybitPrivate(fill_price="100")
+    fake.closed_pnl_empty = True
+    ex = bybit_exec(settings, fake)
+    run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    mon = PositionMonitor(ex)
+    fake.stop_out("BTCUSDT", "98.5")
+    assert run(mon.cycle())["closed"] == 1
+    with dbs.session_scope() as s:
+        p = s.query(Position).one()
+        assert p.status == "KAPALI" and p.last_price == D("98.5")
+    assert system()[1] is False
+
+
+def test_position_gone_without_any_record_is_estimated_not_safe_mode(settings):
+    import app.engines.position_monitor as pm
+    fake = FakeBybitPrivate(fill_price="100")
+    fake.closed_pnl_empty = True
+    ex = bybit_exec(settings, fake)
+    run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    mon = PositionMonitor(ex)
+    fake.stop_out("BTCUSDT", "98", with_history=False)
+    for _ in range(pm.MISSING_BEFORE_ESTIMATE - 1):
+        assert run(mon.cycle())["closed"] == 0
+    assert run(mon.cycle())["closed"] == 1
+    with dbs.session_scope() as s:
+        p = s.query(Position).one()
+        assert p.status == "KAPALI" and p.last_price == D("98")
+        assert s.query(AuditLog).filter(AuditLog.event == "kapanis_tahmini").count() == 1
+        closed = s.query(AuditLog).filter(AuditLog.event == "pozisyon_kapandi").one()
+        assert "tahmini" in closed.detail["reason"]
+    assert system()[1] is False
+
+
+def test_safe_mode_same_reason_written_once(settings):
+    from app.bots.bot09_execution import safe_mode
+    for _ in range(5):
+        safe_mode("aynı neden")
+    with dbs.session_scope() as s:
+        assert s.query(AuditLog).filter(AuditLog.event == "guvenli_mod").count() == 1
+
+
+def test_contract_needing_agreement_is_skipped_afterwards(settings):
+    class Agreement(FakeBybitPrivate):
+        def handler(self, req):
+            if req.url.path == "/v5/order/create":
+                return httpx.Response(200, json={"retCode": 110126, "retMsg": "You must sign the required agreement before trading this contract.", "result": {}})
+            return super().handler(req)
+    fake = Agreement()
+    ex = bybit_exec(settings, fake)
+    r = run(ex.open_from_decision(1, "SNDKUSDT", "LONG", PLAN))
+    assert r["status"] == "REDDEDILDI" and "SNDKUSDT" in ex.blocked
+    r2 = run(ex.open_from_decision(2, "SNDKUSDT", "LONG", PLAN))
+    assert r2["status"] == "ATLANDI" and "sözleşme" in r2["reason"]

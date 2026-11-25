@@ -59,6 +59,8 @@ def _round_tick(x: Decimal, tick: Decimal | None, down: bool) -> Decimal:
 def safe_mode(reason: str, detail: dict | None = None) -> None:
     with session_scope() as s:
         st = s.get(SystemState, 1)
+        if st.safe_mode and st.safe_mode_reason == reason[:500]:
+            return  # aynı neden zaten kayıtlı: her izleme turunda yeniden yazma
         st.trading_enabled = False
         st.safe_mode = True
         st.safe_mode_reason = reason[:500]
@@ -82,6 +84,7 @@ class ExecutionService:
         self.fee_pct = Decimal(str(settings.taker_fee_pct))
         self.maker_pct = Decimal(str(settings.maker_fee_pct))
         self.pending: dict[str, asyncio.Task] = {}      # client_id → bekleyen limit emir izleyicisi
+        self.blocked: set[str] = set()   # borsanın işlem izni vermediği pariteler (ör. sözleşme imzası gereken)
 
     def pending_symbols(self) -> set[str]:
         """Bekleyen (dolmamış) giriş emri olan pariteler; uzlaştırma bunları sahipsiz saymaz."""
@@ -100,6 +103,8 @@ class ExecutionService:
         if self.s.mode not in EXECUTING_MODES:
             return {"status": "ATLANDI", "reason": f"{self.s.mode.value} modunda emir gönderilmez"}
         long = direction == "LONG"
+        if symbol in self.blocked:
+            return {"status": "ATLANDI", "reason": "borsa bu paritede işleme izin vermiyor (sözleşme onayı gerekli)"}
         with session_scope() as s:
             st = s.get(SystemState, 1)
             if not st.trading_enabled or st.safe_mode:
@@ -172,6 +177,9 @@ class ExecutionService:
         except BybitError as exc:
             self._update_order(client_id, status="REDDEDILDI")
             audit("emir_reddedildi", {"client_id": client_id, "error": str(exc)})
+            if "110126" in str(exc) or "agreement" in str(exc).lower():
+                self.blocked.add(symbol)
+                log.warning("%s: Bybit bu kontrat için sözleşme onayı istiyor; parite emir için atlanacak", symbol)
             return {"status": "REDDEDILDI", "reason": str(exc)}
 
         if limit_mode:

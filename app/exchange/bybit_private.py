@@ -130,6 +130,12 @@ class BybitPrivate:
                          {"category": self.category, "symbol": symbol, "orderLinkId": order_link_id},
                          ok_codes=(0, 110001))
 
+    async def order_history(self, symbol: str, start_ms: int) -> list[dict]:
+        """Kapanmış emirler (borsa tarafında tetiklenen stop/hedef emirleri dahil)."""
+        res = await self._call("GET", "/v5/order/history",
+                               {"category": self.category, "symbol": symbol, "startTime": start_ms, "limit": 50})
+        return res.get("list", [])
+
     async def get_order(self, order_link_id: str) -> dict | None:
         res = await self._call("GET", "/v5/order/realtime",
                                {"category": self.category, "orderLinkId": order_link_id})

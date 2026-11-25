@@ -29,6 +29,8 @@ class FakeBybitPrivate:
         self.key_permissions = key_permissions if key_permissions is not None else {
             "ContractTrade": ["Order", "Position"], "Spot": ["SpotTrade"], "Wallet": ["AccountTransfer"]}
         self.key_read_only = key_read_only
+        self.closed_pnl_empty = False     # Bybit demo: kapanış PnL kaydı boş dönebiliyor
+        self.history: dict[str, list[dict]] = {}
 
     def _check_sig(self, req: httpx.Request, payload: str) -> None:
         h = req.headers
@@ -82,6 +84,8 @@ class FakeBybitPrivate:
                 return httpx.Response(200, json={"retCode": 110001, "retMsg": "order not exists or too late to cancel", "result": {}})
             o["orderStatus"] = "PartiallyFilledCanceled" if Decimal(o["cumExecQty"]) > 0 else "Cancelled"
             return ok({"orderLinkId": o["orderLinkId"]})
+        if path == "/v5/order/history" and "orderLinkId" not in params:
+            return ok({"list": self.history.get(params.get("symbol"), [])})
         if path in ("/v5/order/realtime", "/v5/order/history"):
             o = self.orders.get(params.get("orderLinkId", ""))
             return ok({"list": [o] if o else []})
@@ -96,7 +100,7 @@ class FakeBybitPrivate:
                 self.positions[params["symbol"]]["stopLoss"] = params.get("stopLoss", "")
             return ok({})
         if path == "/v5/position/closed-pnl":
-            return ok({"list": self.closed.get(params["symbol"], [])})
+            return ok({"list": [] if self.closed_pnl_empty else self.closed.get(params["symbol"], [])})
         if path == "/v5/user/query-api":
             return ok({"readOnly": self.key_read_only, "permissions": self.key_permissions})
         if path == "/v5/account/wallet-balance":
@@ -104,8 +108,15 @@ class FakeBybitPrivate:
                                  "coin": [{"coin": "USDT", "equity": "50000", "walletBalance": "50000"}]}]})
         return httpx.Response(404)
 
-    def _record_close(self, sym: str, pos: dict, exit_price: Decimal) -> None:
+    def _record_close(self, sym: str, pos: dict, exit_price: Decimal, with_history: bool = True) -> None:
         size, entry = Decimal(pos["size"]), Decimal(pos["avgPrice"])
+        if with_history:
+            import time
+            self.history.setdefault(sym, []).append({
+                "symbol": sym, "side": "Sell" if pos["side"] == "Buy" else "Buy", "orderStatus": "Filled",
+                "cumExecQty": str(size), "avgPrice": str(exit_price), "cumExecFee": str(size * exit_price * Decimal("0.00055")),
+                "reduceOnly": True, "stopOrderType": "StopLoss", "orderLinkId": "",
+                "updatedTime": str(int(time.time() * 1000) + 1000)})
         self.closed.setdefault(sym, []).append({
             "symbol": sym, "closedSize": str(size), "cumEntryValue": str(size * entry),
             "cumExitValue": str(size * exit_price), "avgExitPrice": str(exit_price),
@@ -123,10 +134,10 @@ class FakeBybitPrivate:
                                        "markPrice": str(px), "stopLoss": o["stopLoss"] if self.stop_supported else "",
                                        "takeProfit": o["takeProfit"]}
 
-    def stop_out(self, sym: str, exit_price: str) -> None:
+    def stop_out(self, sym: str, exit_price: str, with_history: bool = True) -> None:
         """Borsa tarafında stop tetiklenmiş gibi pozisyonu kapat."""
         pos = self.positions.pop(sym)
-        self._record_close(sym, pos, Decimal(exit_price))
+        self._record_close(sym, pos, Decimal(exit_price), with_history)
 
     def client(self) -> BybitPrivate:
         http = httpx.AsyncClient(base_url="https://api-demo.bybit.com", transport=httpx.MockTransport(self.handler))

@@ -33,6 +33,9 @@ log = logging.getLogger("x10.monitor")
 ZERO = Decimal(0)
 
 
+MISSING_BEFORE_ESTIMATE = 8   # ~2 dk: borsanın kapanış kaydını yazması için tanınan süre
+
+
 class PositionMonitor:
     def __init__(self, execution: ExecutionService, every_sec: int = 15):
         self.x = execution
@@ -183,9 +186,24 @@ class PositionMonitor:
         cr = await self.b.closed_result(p["symbol"], p["long"], p["entry"], p["qty"], p["opened_ms"])
         if cr is None:
             n = self.missing[p["id"]] = self.missing.get(p["id"], 0) + 1
-            if n >= 4:
-                safe_mode(f"{p['symbol']} pozisyonu borsada yok ve kapanış kaydı bulunamadı", {"position_id": p["id"]})
-            return False
+            if n < MISSING_BEFORE_ESTIMATE:
+                return False
+            # Pozisyon borsada kesin olarak yok (sorgu hatası değil: boş yanıt) → açık risk yok.
+            # Kapanış kaydı da emir geçmişi de gelmedi: çıkış fiyatı borsadaki son stoptan (fiyat
+            # hedefi geçtiyse hedeften) TAHMİN edilir ve açıkça işaretlenir. Güvenli moda gerek yok.
+            try:
+                px = await self.b.last_price(p["symbol"])
+            except Exception:  # noqa: BLE001
+                px = p["stop"]
+            beyond_tp = (px >= p["tp"]) if p["long"] else (px <= p["tp"])
+            est = p["tp"] if beyond_tp else p["stop"]
+            fee = p["qty"] * est * self.x.fee_pct / 100
+            self.x.finalize(p["id"], est, fee, "borsada kapandı (çıkış fiyatı tahmini: kayıt alınamadı)")
+            audit("kapanis_tahmini", {"position_id": p["id"], "symbol": p["symbol"], "tahmini_cikis": str(est),
+                                      "son_fiyat": str(px), "neden": "closed-pnl ve emir geçmişi boş döndü"})
+            log.warning("#%s %s borsada kapalı, kayıt yok: çıkış %s olarak tahmin edildi", p["id"], p["symbol"], est)
+            self.missing.pop(p["id"], None)
+            return True
         exit_fee = cr.close_fee if cr.close_fee is not None else p["qty"] * cr.exit_price * self.x.fee_pct / 100
         reason = "stop-loss" if ((cr.exit_price <= p["stop"]) if p["long"] else (cr.exit_price >= p["stop"])) else "borsada kapandı"
         self.x.finalize(p["id"], cr.exit_price, exit_fee, reason, gross=cr.gross_pnl, exchange_pnl=cr.exchange_closed_pnl)

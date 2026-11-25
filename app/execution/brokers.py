@@ -9,7 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from app.exchange.bybit_private import BybitPrivate
+from app.exchange.bybit_private import BybitAuthError, BybitPrivate
+from app.exchange.bybit_public import BybitError
 from app.exchange.bybit_public import BybitPublic
 
 ZERO = Decimal(0)
@@ -125,7 +126,7 @@ class BybitBroker:
     async def closed_result(self, symbol: str, long: bool, entry: Decimal, qty: Decimal, since_ms: int) -> ClosedResult | None:
         rows = await self.p.closed_pnl(symbol, since_ms)
         if not rows:
-            return None
+            return await self._closed_from_orders(symbol, long, entry, qty, since_ms)
         size = sum((Decimal(r.get("closedSize") or "0") for r in rows), ZERO) or qty
         exit_value = sum((Decimal(r.get("cumExitValue") or "0") for r in rows), ZERO)
         exit_price = exit_value / size if size else Decimal(rows[0].get("avgExitPrice") or "0")
@@ -136,6 +137,34 @@ class BybitBroker:
                             sum((Decimal(x) for x in of), ZERO) if of else None,
                             sum((Decimal(x) for x in cf), ZERO) if cf else None,
                             sum((Decimal(r.get("closedPnl") or "0") for r in rows), ZERO))
+
+    async def _closed_from_orders(self, symbol: str, long: bool, entry: Decimal, qty: Decimal,
+                                  since_ms: int) -> ClosedResult | None:
+        """Kapanış PnL kaydı yoksa (demo hesapta gecikebiliyor/boş dönebiliyor): pozisyon açıldıktan
+        sonra dolan ters yönlü kapatma emirlerinden (tetiklenen stop/hedef, elle kapatma) çıkış
+        fiyatını ve komisyonu hesaplar."""
+        try:
+            orders = await self.p.order_history(symbol, since_ms)
+        except BybitAuthError:
+            raise
+        except BybitError:
+            return None
+        close_side = "Sell" if long else "Buy"
+        fills = [o for o in orders
+                 if o.get("side") == close_side and Decimal(o.get("cumExecQty") or "0") > 0
+                 and int(o.get("updatedTime") or o.get("createdTime") or 0) >= since_ms
+                 and (o.get("reduceOnly") or o.get("closeOnTrigger") or o.get("stopOrderType")
+                      or str(o.get("orderLinkId", "")).endswith("-X"))]
+        if not fills:
+            return None
+        size = sum((Decimal(o["cumExecQty"]) for o in fills), ZERO)
+        value = sum((Decimal(o["cumExecQty"]) * Decimal(o.get("avgPrice") or "0") for o in fills), ZERO)
+        if size <= 0 or value <= 0:
+            return None
+        exit_price = value / size
+        fee = sum((Decimal(o.get("cumExecFee") or "0") for o in fills), ZERO)
+        gross = (exit_price - entry) * min(size, qty) * (1 if long else -1)
+        return ClosedResult(exit_price, gross, None, fee, None)
 
     async def last_price(self, symbol: str) -> Decimal:
         pos = await self.position(symbol)
