@@ -359,7 +359,9 @@ function renderHeader(h, risk) {
   const st = $("state"); st.replaceChildren(el("span", {class: "dot"}), h.safe_mode ? "Güvenli mod" : h.trading_enabled ? "Çalışıyor" : "Yeni işlem kapalı");
   st.className = "pill " + (h.safe_mode ? "bad" : h.trading_enabled ? "ok" : "warn");
   text("sub", new Date().toLocaleTimeString("tr-TR") + " · veritabanı " + (h.database ? "bağlı" : "YOK"));
-  const blocks = risk.new_trades_blocked_by || [], why = risk.system && risk.system.safe_mode_reason;
+  const blocks = [...(risk.new_trades_blocked_by || [])], why = risk.system && risk.system.safe_mode_reason;
+  if (h.api_key && h.api_key.ok === false) blocks.unshift("Bybit API anahtarı: " + h.api_key.problem);
+  if (!h.execution) blocks.push("emir katmanı kapalı: kararlar kaydediliyor ama Bybit'e emir gönderilmiyor");
   $("blocked").style.display = blocks.length || why ? "block" : "none";
   text("blocked", [why ? "Güvenli mod: " + why : "", ...blocks.map(b => "Engel: " + b)].filter(Boolean).join(" · "));
 }

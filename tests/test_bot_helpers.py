@@ -16,9 +16,10 @@ def ctx(**kw):
 def test_target_gives_exact_net_rr():
     cost = 0.2
     tp = target_for(100, 98, cost, True)
-    assert net_rr(100, 98, tp, cost) == pytest.approx(2.0)
+    assert net_rr(100, 98, tp, cost) == pytest.approx(2.05)          # planlanan: asgari 2,0 + pay
+    assert net_rr(100, 98, target_for(100, 98, cost, True, 2.0), cost) == pytest.approx(2.0)
     tp_s = target_for(100, 102, cost, False)
-    assert tp_s < 100 and net_rr(100, 102, tp_s, cost) == pytest.approx(2.0)
+    assert tp_s < 100 and net_rr(100, 102, tp_s, cost) == pytest.approx(2.05)
 
 
 def test_make_signal_rejections():
@@ -28,7 +29,7 @@ def test_make_signal_rejections():
     assert make_signal(c, "BOT01", "x", Plan(True, 100, 100, 99, target=100.5), 60, "r") is None  # net RR < 2
     assert make_signal(ctx(allow_short=False), "BOT01", "x", Plan(False, 100, 100, 101), 60, "r") is None
     s = make_signal(c, "BOT01", "x+tag", Plan(True, 100, 100, 99), 150, "r")
-    assert s.confidence == 100 and float(s.expected_net_rr) == pytest.approx(2.0)
+    assert s.confidence == 100 and float(s.expected_net_rr) == pytest.approx(2.05)
     assert s.details["dedup_key"].startswith("BOT01:XUSDT:15m:x:")
 
 

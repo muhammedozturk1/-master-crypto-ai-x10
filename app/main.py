@@ -102,9 +102,35 @@ async def backtest_suite(app: FastAPI, settings, delay_sec: int = 120) -> None:
         await run_job(rid, req, app.state.market, settings)
 
 
+async def check_key_permissions(private) -> dict:
+    """API anahtarı işlem yetkisini açılışta denetler. İşlem yetkisi yoksa veya para çekme yetkisi
+    VARSA emir katmanı kapatılır (ok=False). Yetki sorgusu yanıtlanamazsa engellemez (ok=None)."""
+    try:
+        info = await private.api_key_info()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("API anahtarı yetkileri sorgulanamadı: %s", exc)
+        return {"ok": None, "problem": f"yetki sorgulanamadı: {str(exc)[:160]}"}
+    problems = []
+    if not info["can_trade"]:
+        problems.append("anahtarda işlem yetkisi yok (Bybit API ayarında Read-Write ve "
+                        "Contract/Derivatives: Orders + Positions işaretlenmeli)")
+    if info["withdraw"]:
+        problems.append("anahtarda PARA ÇEKME yetkisi var; güvenlik için kaldırılmalı")
+    if problems:
+        log.error("API anahtarı uygun değil, emir katmanı KAPALI: %s", "; ".join(problems))
+        with session_scope() as s:
+            from app.database.models import AuditLog
+            s.add(AuditLog(event="anahtar_yetkisi_eksik", actor="BOT09",
+                           detail={"problems": problems, "permissions": info["permissions"]}))
+        return {"ok": False, "problem": "; ".join(problems)}
+    log.info("API anahtarı yetkileri uygun: işlem var, para çekme yok")
+    return {"ok": True, "problem": None}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    app.state.key_check = {"ok": None, "problem": "emir katmanı anahtarla çalışmıyor"}
     configure(settings.sqlalchemy_url)
     init_db()
     with session_scope() as s:  # yeniden başlatmada yarım kalan backtest'ler sonsuza dek "çalışıyor" kalmasın
@@ -130,6 +156,7 @@ async def lifespan(app: FastAPI):
             bal = await app.state.execution.b.p.wallet_balance()
             log.info("Bybit %s bağlantısı doğrulandı: toplam özkaynak %s USD (sistem kendi 200 USD kasasıyla boyutlar)",
                      app.state.execution.venue, bal.get("total_equity"))
+            app.state.key_check = await check_key_permissions(app.state.execution.b.p)
         except Exception as exc:  # noqa: BLE001
             log.error("Bybit API anahtarı doğrulanamadı, emir katmanı KAPALI: %s", exc)
             with session_scope() as s:
@@ -137,6 +164,9 @@ async def lifespan(app: FastAPI):
                 s.add(AuditLog(event="anahtar_dogrulanamadi", actor="BOT09", detail={"error": str(exc)[:300]}))
             await app.state.execution.b.p.close()
             app.state.execution = None
+    if app.state.execution and app.state.key_check.get("ok") is False:
+        await app.state.execution.b.p.close()
+        app.state.execution = None
     from app.notifications.telegram import TelegramNotifier, install
     app.state.notifier = (TelegramNotifier(settings.telegram_bot_token, settings.telegram_chat_id)
                           if settings.telegram_bot_token and settings.telegram_chat_id else None)

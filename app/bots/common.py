@@ -9,6 +9,9 @@ from app.bots.base import MarketContext, px
 from app.domain.signals import Action, DataQuality, Signal
 
 TARGET_NET_RR = 2.0   # şartname 10.1: asgari net ödül/risk 1:2
+# Hedef, asgarinin biraz üstüne konur: fiyat yuvarlaması ve emir anındaki küçük fiyat kayması
+# BOT07'nin 1:2 kontrolünü sınırda (1,999…) düşürmesin. Asgari kural değişmez.
+PLANNED_NET_RR = 2.05
 MAX_STOP_PCT = 4.0
 
 
@@ -18,7 +21,7 @@ def volume_ratio(volumes: list[float], i: int, lookback: int = 20) -> float:
     return volumes[i] / avg if avg > 0 else 0.0
 
 
-def target_for(entry: float, stop: float, cost: float, long: bool, net_rr: float = TARGET_NET_RR) -> float:
+def target_for(entry: float, stop: float, cost: float, long: bool, net_rr: float = PLANNED_NET_RR) -> float:
     """Maliyetler sonrası istenen net ödül/riski veren hedef fiyat.
     net = (ödül - maliyet) / (risk + maliyet)  →  ödül = net·(risk+maliyet) + maliyet"""
     risk = abs(entry - stop)

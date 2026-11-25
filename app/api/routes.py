@@ -33,7 +33,7 @@ def require_admin(
 
 
 @router.get("/health")
-def health(session: Session = Depends(get_session), settings: Settings = Depends(get_settings)) -> dict:
+def health(request: Request, session: Session = Depends(get_session), settings: Settings = Depends(get_settings)) -> dict:
     try:
         session.execute(text("SELECT 1"))
         db_ok = True
@@ -48,6 +48,8 @@ def health(session: Session = Depends(get_session), settings: Settings = Depends
         "bybit_demo": settings.bybit_demo,
         "trading_enabled": bool(state and state.trading_enabled),
         "safe_mode": bool(state and state.safe_mode),
+        "execution": getattr(getattr(request.app.state, "execution", None), "venue", None),
+        "api_key": getattr(request.app.state, "key_check", None),
     }
 
 

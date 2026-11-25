@@ -85,6 +85,21 @@ class BybitPrivate:
         return {"total_equity": acc.get("totalEquity"), "available": acc.get("totalAvailableBalance"),
                 "usdt_equity": usdt.get("equity"), "usdt_wallet": usdt.get("walletBalance")}
 
+    async def api_key_info(self) -> dict:
+        """Anahtar yetkileri: işlem için Contract Order+Position (vadeli) / SpotTrade (spot) gerekir,
+        para çekme yetkisi OLMAMALI."""
+        res = await self._call("GET", "/v5/user/query-api", {})
+        perms = res.get("permissions") or {}
+        flat = {p for v in perms.values() if isinstance(v, list) for p in v}
+        if self.category == "spot":
+            can_trade = "SpotTrade" in set(perms.get("Spot") or [])
+        else:
+            ct = set(perms.get("ContractTrade") or [])
+            can_trade = {"Order", "Position"} <= ct
+        read_only = str(res.get("readOnly")) == "1"
+        return {"read_only": read_only, "can_trade": can_trade and not read_only,
+                "withdraw": "Withdraw" in flat, "permissions": perms}
+
     async def set_leverage(self, symbol: str, leverage: int) -> None:
         await self._call("POST", "/v5/position/set-leverage",
                          {"category": self.category, "symbol": symbol,

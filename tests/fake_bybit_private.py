@@ -15,7 +15,7 @@ KEY, SECRET = "test-key", "test-secret"
 
 class FakeBybitPrivate:
     def __init__(self, fill_price="100", timeout_on_create=False, lose_order=False, stop_supported=True,
-                 trading_stop_fails=False):
+                 trading_stop_fails=False, key_permissions=None, key_read_only=0):
         self.fill_price = Decimal(fill_price)
         self.timeout_on_create = timeout_on_create
         self.lose_order = lose_order            # emir kaydı borsada bulunamaz
@@ -26,6 +26,9 @@ class FakeBybitPrivate:
         self.closed: dict[str, list] = {}
         self.calls: list[tuple[str, dict]] = []
         self.bad_signatures = 0
+        self.key_permissions = key_permissions if key_permissions is not None else {
+            "ContractTrade": ["Order", "Position"], "Spot": ["SpotTrade"], "Wallet": ["AccountTransfer"]}
+        self.key_read_only = key_read_only
 
     def _check_sig(self, req: httpx.Request, payload: str) -> None:
         h = req.headers
@@ -81,6 +84,8 @@ class FakeBybitPrivate:
             return ok({})
         if path == "/v5/position/closed-pnl":
             return ok({"list": self.closed.get(params["symbol"], [])})
+        if path == "/v5/user/query-api":
+            return ok({"readOnly": self.key_read_only, "permissions": self.key_permissions})
         if path == "/v5/account/wallet-balance":
             return ok({"list": [{"totalEquity": "50000", "totalAvailableBalance": "49000",
                                  "coin": [{"coin": "USDT", "equity": "50000", "walletBalance": "50000"}]}]})
