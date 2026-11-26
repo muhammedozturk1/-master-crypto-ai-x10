@@ -6,6 +6,8 @@ import json
 from decimal import Decimal
 from urllib.parse import parse_qsl
 
+import time
+
 import httpx
 
 from app.exchange.bybit_private import BybitPrivate, sign
@@ -114,7 +116,6 @@ class FakeBybitPrivate:
     def _record_close(self, sym: str, pos: dict, exit_price: Decimal, with_history: bool = True) -> None:
         size, entry = Decimal(pos["size"]), Decimal(pos["avgPrice"])
         if with_history:
-            import time
             self.history.setdefault(sym, []).append({
                 "symbol": sym, "side": "Sell" if pos["side"] == "Buy" else "Buy", "orderStatus": "Filled",
                 "cumExecQty": str(size), "avgPrice": str(exit_price), "cumExecFee": str(size * exit_price * Decimal("0.00055")),
@@ -122,6 +123,7 @@ class FakeBybitPrivate:
                 "updatedTime": str(int(time.time() * 1000) + 1000)})
         self.closed.setdefault(sym, []).append({
             "symbol": sym, "closedSize": str(size), "cumEntryValue": str(size * entry),
+            "updatedTime": str(int(time.time() * 1000) + 1000),
             "cumExitValue": str(size * exit_price), "avgExitPrice": str(exit_price),
             "closedPnl": str((exit_price - entry) * size), "openFee": str(size * entry * Decimal("0.00055")),
             "closeFee": str(size * exit_price * Decimal("0.00055"))})

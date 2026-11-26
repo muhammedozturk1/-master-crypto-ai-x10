@@ -596,3 +596,18 @@ def test_agreement_blocked_symbols_persist_and_leave_scanner(settings):
     assert agreement_blocked_symbols() == {"SPCXUSDT"}
     assert "SPCXUSDT" in bybit_exec(settings, FakeBybitPrivate()).blocked      # yeniden başlatmada hatırlanır
     assert "SPCXUSDT" in scan_config(settings).blacklist
+
+
+def test_closed_queries_do_not_send_start_time_and_filter_old_rows(settings):
+    """Demo hesapta startTime'lı sorgu boş dönüyordu: sorgu startTime'sız, eski kayıtlar istemcide süzülür."""
+    fake = FakeBybitPrivate(fill_price="100")
+    fake.closed["BTCUSDT"] = [{"symbol": "BTCUSDT", "closedSize": "9", "cumExitValue": "1", "updatedTime": "1000"}]
+    ex = bybit_exec(settings, fake)
+    run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    fake.stop_out("BTCUSDT", "98.5")
+    run(PositionMonitor(ex).cycle())
+    q = [p for path, p in fake.calls if path in ("/v5/position/closed-pnl", "/v5/order/history") and "orderLinkId" not in p]
+    assert q and all("startTime" not in p for p in q)
+    with dbs.session_scope() as s:
+        p = s.query(Position).one()
+        assert p.status == "KAPALI" and p.last_price == D("98.5")      # eski (9 adetlik) kayıt sayılmadı

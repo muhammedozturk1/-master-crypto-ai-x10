@@ -10,6 +10,7 @@ emrin durumunu orderLinkId ile sorgular.
 from __future__ import annotations
 
 import hashlib
+import logging
 import hmac
 import json
 import time
@@ -19,6 +20,8 @@ from urllib.parse import urlencode
 import httpx
 
 from app.exchange.bybit_public import BybitError
+
+log = logging.getLogger(__name__)
 
 RECV_WINDOW = "10000"
 LEVERAGE_NOT_MODIFIED = 110043
@@ -34,6 +37,14 @@ class BybitTimeout(BybitError):
 
 def sign(secret: str, payload: str) -> str:
     return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+
+def _ts(row: dict) -> int:
+    """Kaydın zamanı (ms): güncellenme, yoksa oluşturulma."""
+    try:
+        return int(row.get("updatedTime") or row.get("createdTime") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 class BybitPrivate:
@@ -133,8 +144,11 @@ class BybitPrivate:
     async def order_history(self, symbol: str, start_ms: int) -> list[dict]:
         """Kapanmış emirler (borsa tarafında tetiklenen stop/hedef emirleri dahil)."""
         res = await self._call("GET", "/v5/order/history",
-                               {"category": self.category, "symbol": symbol, "startTime": start_ms, "limit": 50})
-        return res.get("list", [])
+                               {"category": self.category, "symbol": symbol, "limit": 50})
+        rows = res.get("list", [])
+        if not rows:
+            log.info("Emir geçmişi boş döndü: %s", symbol)
+        return [r for r in rows if _ts(r) >= start_ms]
 
     async def get_order(self, order_link_id: str) -> dict | None:
         res = await self._call("GET", "/v5/order/realtime",
@@ -167,6 +181,7 @@ class BybitPrivate:
         await self._call("POST", "/v5/position/trading-stop", p)
 
     async def closed_pnl(self, symbol: str, start_ms: int) -> list[dict]:
+        # startTime gönderilmez (demo hesapta boş dönüyordu); son kayıtlar alınıp zamana göre süzülür
         res = await self._call("GET", "/v5/position/closed-pnl",
-                               {"category": self.category, "symbol": symbol, "startTime": start_ms, "limit": 50})
-        return res.get("list", [])
+                               {"category": self.category, "symbol": symbol, "limit": 50})
+        return [r for r in res.get("list", []) if _ts(r) >= start_ms]
