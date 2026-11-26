@@ -27,6 +27,19 @@ CATEGORY = {"BOT01": "teknik", "BOT03": "teknik", "BOT10": "teknik", "BOT02": "t
 CAPS = {"teknik": 20, "trend": 20, "hacim_likidite": 15, "rejim_uyumu": 15, "haber": 10, "akis": 10, "performans": 10}
 
 OUTCOMES = [(85, "YUKSEK_ONCELIK"), (75, "RISK_KONTROLU"), (65, "DOGRULAMA"), (50, "IZLEME"), (0, "REDDEDILDI")]
+RISK_THRESHOLD_RANGE = (65, 85)   # ayarlanabilir risk eşiği bu aralığın dışına çıkamaz
+
+
+def outcome_for(score: float, risk_threshold: float = 75) -> str:
+    """Puan → karar seviyesi. Risk değerlendirmesine gönderme eşiği ayarlanabilir (varsayılan 75)."""
+    th = min(max(risk_threshold, RISK_THRESHOLD_RANGE[0]), RISK_THRESHOLD_RANGE[1])
+    if score >= 85:
+        return "YUKSEK_ONCELIK"
+    if score >= th:
+        return "RISK_KONTROLU"
+    if score >= 65:
+        return "DOGRULAMA"
+    return "IZLEME" if score >= 50 else "REDDEDILDI"
 
 
 @dataclass
@@ -37,6 +50,7 @@ class MarketInputs:
     bot_weights: dict[str, float] = field(default_factory=dict)
     trading_enabled: bool = True
     safe_mode: bool = False
+    risk_threshold: float = 75                 # bu puan ve üstü BOT07 risk değerlendirmesine gider
 
 
 @dataclass
@@ -118,7 +132,7 @@ def decide(ctx: MarketContext, sigs: list[Signal], mi: MarketInputs) -> Decision
     other_has = bool(short_best if long else long_best)
     notes = []
 
-    outcome = next(o for th, o in OUTCOMES if score >= th)
+    outcome = outcome_for(score, mi.risk_threshold)
     if other_has:
         if other >= 50 and abs(score - other) < 15:
             outcome = "CELISKI"
@@ -127,7 +141,7 @@ def decide(ctx: MarketContext, sigs: list[Signal], mi: MarketInputs) -> Decision
             penalty = min(10.0, other / 5)
             score -= penalty
             contrib["celiski_cezasi"] = round(-penalty, 1)
-            outcome = next(o for th, o in OUTCOMES if score >= th)
+            outcome = outcome_for(score, mi.risk_threshold)
     w = strategy_weight(regime.regime, best.strategy_id, long)
     if regime.regime in NO_NEW_TRADES:
         outcome = "VETO" if mi.news_veto else "REDDEDILDI"

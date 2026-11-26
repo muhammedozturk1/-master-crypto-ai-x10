@@ -27,7 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.config import Settings, TradingMode
-from app.database.models import AuditLog, Order, Position, SystemState
+from app.database.models import AuditLog, Order, Position, ProtectionChange, SystemState
 from app.database.session import session_scope
 from app.exchange.bybit_private import BybitTimeout
 from app.exchange.bybit_public import BybitError
@@ -394,6 +394,75 @@ class ExecutionService:
         audit("pozisyon_kapatma", {"position_id": position_id, "reason": reason, "fill": fill.status})
         return {"status": fill.status, "reason": reason}
 
+    async def take_partial(self, position_id: int, fraction: Decimal, qty_step: Decimal | None) -> dict:
+        """Kısmi kâr: pozisyonun bir kısmını azaltan piyasa emriyle kapatır, stopu başabaşa çeker.
+        Bir pozisyonda yalnız bir kez yapılır (emir kimliği x10-<id>-P benzersiz)."""
+        with session_scope() as s:
+            p = s.get(Position, position_id)
+            if p is None or p.status != "ACIK" or p.partial_taken:
+                return {"status": "YOK"}
+            symbol, long, qty, entry = p.symbol, p.side == "LONG", p.qty, p.entry_price
+            stop, tp = p.current_stop, p.take_profit
+            close_qty = _round_down(qty * fraction, qty_step)
+            if close_qty <= 0 or (qty_step and qty - close_qty < qty_step):
+                p.partial_taken = True        # bölünemeyecek kadar küçük: tekrar denenmez
+                return {"status": "ATLANDI", "reason": "miktar bölünemeyecek kadar küçük"}
+            p.partial_taken = True            # gönderimden ÖNCE işaretlenir: çift kısmi kapatma olmaz
+        client_id = f"x10-{position_id}-P"
+        try:
+            with session_scope() as s:
+                s.add(Order(client_order_id=client_id, position_id=position_id, symbol=symbol,
+                            side="Sell" if long else "Buy", order_type="Market", purpose="KISMI_CIKIS",
+                            qty=close_qty, status="GONDERILIYOR"))
+        except IntegrityError:
+            return {"status": "ATLANDI", "reason": "kısmi kapatma zaten gönderilmiş"}
+        try:
+            sent = await self.b.place_market(symbol, not long, close_qty, client_id, None, None, reduce_only=True)
+        except BybitTimeout:
+            sent = Fill("UNKNOWN")
+        except BybitError as exc:
+            self._update_order(client_id, status="REDDEDILDI")
+            audit("kismi_kar_hatasi", {"position_id": position_id, "error": str(exc)[:300]})
+            return {"status": "HATA", "reason": str(exc)}
+        fill = sent if sent.status == "FILLED" else await self._poll(client_id)
+        if fill.filled_qty <= 0:
+            self._update_order(client_id, status="BILINMIYOR" if fill.status in ("UNKNOWN", "NOT_FOUND") else "REDDEDILDI")
+            audit("kismi_kar_hatasi", {"position_id": position_id, "error": fill.error or fill.status})
+            return {"status": "HATA", "reason": fill.error or fill.status}
+        d = 1 if long else -1
+        part_net = (fill.avg_price - entry) * fill.filled_qty * d - fill.fee
+        # Başabaş: giriş + iki yön komisyonu (kalan yarı bu stopla en kötü ihtimalle ~0'da kapanır)
+        be = entry * (1 + d * 2 * self.fee_pct / 100)
+        new_stop = be if ((long and be > stop) or (not long and be < stop)) else None
+        if new_stop is not None and not isinstance(self.b, SimBroker):
+            try:
+                await self.b.set_protection(symbol, new_stop, tp)
+            except Exception as exc:  # noqa: BLE001 – stop taşınamadı: eski stop borsada geçerli kalır
+                audit("kismi_kar_stop_hatasi", {"position_id": position_id, "error": str(exc)[:300]})
+                new_stop = None
+        with session_scope() as s:
+            p = s.get(Position, position_id)
+            frac_left = (p.qty - fill.filled_qty) / p.qty
+            p.qty -= fill.filled_qty
+            p.partial_realized = (p.partial_realized or ZERO) + part_net
+            p.partial_at = datetime.now(timezone.utc)
+            p.risk_usd = (p.risk_usd or ZERO) * frac_left
+            p.margin_usd = (p.margin_usd or ZERO) * frac_left
+            if new_stop is not None:
+                s.add(ProtectionChange(position_id=position_id, old_stop=p.current_stop, new_stop=new_stop,
+                                       lock_state=max(p.lock_state or 0, 1),
+                                       reason="KISMI_KAR: yarısı 1R'de kapatıldı, stop başabaşa"))
+                p.current_stop = new_stop
+                p.lock_state = max(p.lock_state or 0, 1)
+            o = s.scalars(select(Order).where(Order.client_order_id == client_id)).one()
+            o.status, o.filled_qty, o.avg_fill_price = "DOLDU", fill.filled_qty, fill.avg_price
+        audit("kismi_kar_alindi", {"position_id": position_id, "symbol": symbol, "qty": str(fill.filled_qty),
+                                   "price": str(fill.avg_price), "net": str(part_net),
+                                   "new_stop": str(new_stop) if new_stop is not None else None})
+        log.info("Kısmi kâr #%s %s: %s @ %s, net %s, stop → %s", position_id, symbol, fill.filled_qty,
+                 fill.avg_price, part_net, new_stop)
+        return {"status": "DOLDU", "qty": str(fill.filled_qty), "net": str(part_net)}
+
     def finalize(self, position_id: int, exit_price: Decimal, exit_fee: Decimal, reason: str,
                  gross: Decimal | None = None, exchange_pnl: Decimal | None = None) -> None:
         with session_scope() as s:
@@ -403,7 +472,7 @@ class ExecutionService:
             d = 1 if p.side == "LONG" else -1
             g = gross if gross is not None else (exit_price - p.entry_price) * p.qty * d
             p.exit_fee = exit_fee
-            p.realized_net_pnl = g - p.entry_fee - exit_fee
+            p.realized_net_pnl = g - p.entry_fee - exit_fee + (p.partial_realized or ZERO)
             p.last_price, p.unrealized_net_pnl = exit_price, ZERO
             p.status, p.closed_at = "KAPALI", datetime.now(timezone.utc)
             p.lock_state = 5  # CLOSED

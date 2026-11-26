@@ -163,6 +163,14 @@ class Settings(BaseSettings):
     # Giriş emri: "limit" = plan fiyatına PostOnly limit (maker komisyonu, fiyat kovalanmaz;
     # süre dolunca iptal) | "market" = piyasa emri (taker)
     entry_order_type: Literal["limit", "market"] = "limit"
+    # Ana robotun risk değerlendirmesine gönderme eşiği (şartname 75; demo testinde kullanıcı
+    # kararıyla 70). Kodda 65-85 aralığına sabitlenir.
+    risk_score_threshold: int = 70
+    # Kısmi kâr alma: fiyat 1R kâra ulaşınca pozisyonun yarısı kapatılır, stop başabaşa çekilir,
+    # kalan yarı hedefe/kâr kilidine kadar taşınır.
+    partial_tp_enabled: bool = True
+    partial_tp_r: float = 1.0
+    partial_tp_fraction: float = 0.5
     maker_fee_pct: float = 0.02     # Bybit USDT perpetual maker komisyonu (tek yön, %)
     taker_fee_pct: float = 0.055  # Bybit USDT perpetual taker komisyonu (tek yön, %)
 

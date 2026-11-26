@@ -74,9 +74,10 @@ def bars(spec):
     return [Candle(T0 + k * STEP, D(o), D(h), D(l), D(c), D(10), D(0), "15") for k, (o, h, l, c) in enumerate(spec)]
 
 
-def run_manual(spec, long=True, stop=98.0, tp=104.0, lock=False):
+def run_manual(spec, long=True, stop=98.0, tp=104.0, lock=False, partial=False):
     cs = bars(spec)
-    bt = Backtester({"X": cs}, None, None, BacktestParams(profit_lock=lock, half_spread_pct=0, slippage_pct=0))
+    bt = Backtester({"X": cs}, None, None, BacktestParams(profit_lock=lock, half_spread_pct=0, slippage_pct=0,
+                                                          partial_tp=partial))
     bt.pending.append(_Pending("X", "nr7_breakout", "BOT10", long, stop, tp, None, 1.0))
     for i, c in enumerate(cs):
         bt._fill_pending("X", c)
@@ -108,6 +109,28 @@ def test_profit_lock_applies_from_next_bar_only():
     with_lock, without = run_manual(spec, lock=True), run_manual(spec, lock=False)
     assert with_lock.trades and with_lock.trades[0].exit_reason == "kar_kilidi" and with_lock.trades[0].net > 0
     assert not without.trades  # kilitsiz pozisyon hâlâ açık (stop 98)
+
+
+def test_partial_take_profit_half_at_1r_then_breakeven_next_bar():
+    # giriş 100, stop 98 → 1R = 102: yarısı 102'de kapanır; sonraki mumda stop başabaşa (≈100.11)
+    spec = [("100", "100.5", "99.6", "100"), ("100", "102.5", "100", "102"),
+            ("102", "102.2", "99.5", "99.8")]
+    bt = run_manual(spec, partial=True)
+    [t] = bt.trades
+    assert t.exit_reason == "kar_kilidi" and t.exit == pytest.approx(100 * (1 + 2 * 0.00055))
+    full_qty = t.qty * 2
+    part = (102 - 100) * t.qty - t.qty * 102 * 0.00055
+    rest = (t.exit - 100) * t.qty - t.qty * t.exit * 0.00055
+    assert t.net == pytest.approx(part + rest - full_qty * 100 * 0.00055)
+    assert t.net > 0
+    no_partial = run_manual(spec)
+    assert not no_partial.trades            # kısmisiz: stop 98'de, pozisyon açık
+
+
+def test_partial_stop_first_when_same_bar():
+    bt = run_manual([("100", "102.5", "97", "99")], partial=True)    # aynı mumda stop ve 1R: önce stop
+    [t] = bt.trades
+    assert t.exit_reason == "stop" and t.exit == 98
 
 
 def test_system_mode_uses_risk_layer(data):

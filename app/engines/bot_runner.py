@@ -252,7 +252,7 @@ class BotRunner:
         return rep
 
     def market_inputs(self) -> MarketInputs:
-        mi = MarketInputs()
+        mi = MarketInputs(risk_threshold=self.settings.risk_score_threshold)
         cal = self.providers.get("calendar")
         st = cal() if cal else None
         if st is not None and getattr(st, "fetched_at", None):

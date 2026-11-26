@@ -96,6 +96,10 @@ class Position(Base):
     # Pozisyon izleyicinin güncellediği anlık değerler ve açılıştaki risk/teminat
     last_price: Mapped[Decimal | None] = mapped_column(PRICE)
     high_water: Mapped[Decimal | None] = mapped_column(PRICE)  # long: en yüksek, short: en düşük fiyat
+    # Kısmi kâr alma: yarısı 1R'de kapatıldıysa; o kapatmanın net sonucu (giriş komisyonu hariç)
+    partial_taken: Mapped[bool | None] = mapped_column(Boolean, default=False)
+    partial_realized: Mapped[Decimal | None] = mapped_column(MONEY, default=Decimal("0"))
+    partial_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     unrealized_net_pnl: Mapped[Decimal | None] = mapped_column(MONEY)
     risk_usd: Mapped[Decimal | None] = mapped_column(MONEY)
     margin_usd: Mapped[Decimal | None] = mapped_column(MONEY)

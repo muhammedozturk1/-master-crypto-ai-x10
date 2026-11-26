@@ -48,7 +48,7 @@ label{font-size:12px;color:var(--mute);display:flex;flex-direction:column;gap:4p
 .chart{position:relative}.chart svg{position:absolute;inset:0;width:100%;height:100%}
 .lbl{position:absolute;right:6px;font:600 11px ui-monospace,Menlo,monospace;padding:2px 6px;border-radius:4px;background:#0d1117;border:1px solid;transition:top .6s ease;transform:translateY(-50%)}
 /* Puan göstergesi */
-.gauge{position:relative;height:14px;border-radius:7px;background:linear-gradient(90deg,#2a1c14 0 50%,#21262d 50% 65%,#1a2333 65% 75%,#14254a 75% 85%,#12291a 85%)}
+.gauge{position:relative;height:14px;border-radius:7px;background:linear-gradient(90deg,#2a1c14 0 50%,#21262d 50% 65%,#1a2333 65% 70%,#14254a 70% 85%,#12291a 85%)}
 .gauge .tick{position:absolute;top:-4px;width:2px;height:22px;background:#5a6372}
 .gauge .mk{position:absolute;top:-3px;width:20px;height:20px;border-radius:50%;background:var(--ink);border:3px solid var(--bg);transform:translateX(-50%);transition:left .7s ease}
 
@@ -136,8 +136,8 @@ body:not(.m) .mobonly{display:none}
     <section class="card" style="display:flex;flex-direction:column;gap:12px">
       <h2 style="margin:0">Ana robot</h2>
       <div id="w_dec"></div>
-      <div class="gauge" aria-label="Son karar puanı"><span class="tick" style="left:50%"></span><span class="tick" style="left:65%"></span><span class="tick" style="left:75%"></span><span class="tick" style="left:85%"></span><span class="mk" id="w_mk" style="left:0"></span></div>
-      <div class="muted num" style="display:flex;justify-content:space-between"><span>0 red</span><span>50 izle</span><span>75 risk</span><span>100</span></div>
+      <div class="gauge" aria-label="Son karar puanı"><span class="tick" style="left:50%"></span><span class="tick" style="left:65%"></span><span class="tick" style="left:70%"></span><span class="tick" style="left:85%"></span><span class="mk" id="w_mk" style="left:0"></span></div>
+      <div class="muted num" style="display:flex;justify-content:space-between"><span>0 red</span><span>50 izle</span><span>70 risk</span><span>100</span></div>
       <div id="w_dist"></div>
     </section>
   </div>
@@ -179,7 +179,7 @@ body:not(.m) .mobonly{display:none}
     </div>
     <div class="mcard"><div style="display:flex;justify-content:space-between"><b id="m_ctitle">Grafik</b><span class="muted">1 dk</span></div><div class="chart" id="m_chart" style="height:190px"></div></div>
     <div class="mcard"><b>Ana robot</b><div id="m_dec"></div>
-      <div class="gauge"><span class="tick" style="left:50%"></span><span class="tick" style="left:75%"></span><span class="mk" id="m_mk" style="left:0"></span></div></div>
+      <div class="gauge"><span class="tick" style="left:50%"></span><span class="tick" style="left:70%"></span><span class="mk" id="m_mk" style="left:0"></span></div></div>
     <div class="mbtns"><button class="go" data-act="resume" type="button">▶ Başlat</button><button class="danger" data-act="kill" type="button">⛔ Acil durdur</button></div>
   </div>
   <div class="tab" data-tab="islem"><div id="m_pos" style="display:flex;flex-direction:column;gap:10px"></div><div class="mcard"><b>Risk</b><div id="m_risk"></div></div></div>
@@ -456,7 +456,7 @@ function renderPositions(ps, orders) {
       el("td", {}, el("b", {}, p.symbol), el("div", {class: "muted"}, (p.strategy || "").split("+")[0])), el("td", {class: p.side === "LONG" ? "pos" : "neg"}, p.side),
       el("td", {class: "num"}, fmt(p.notional_usd) + " $"), el("td", {class: "num"}, pfmt(p.entry_price)), el("td", {class: "num"}, pfmt(isOpen && S.prices[p.symbol] ? S.prices[p.symbol] : p.last_price)),
       el("td", {class: "num"}, pfmt(p.current_stop)), el("td", {class: "num"}, pfmt(p.take_profit)), el("td", {class: "num"}, "%" + fmt(p.peak_net_pnl_pct)),
-      el("td", {}, LOCK[p.lock_state] ?? "—"), el("td", {class: "num " + cls(pnl)}, usd(pnl)),
+      el("td", {}, (LOCK[p.lock_state] ?? "—") + (p.partial_taken ? " · yarısı alındı" : "")), el("td", {class: "num " + cls(pnl)}, usd(pnl)),
       el("td", {}, isOpen ? el("button", {class: "small danger", type: "button", onclick: () => closePos(p.id, p.symbol)}, "Kapat") : "kapandı"));
   });
   const wrows = waiting.map(o => el("tr", {class: "new"},
@@ -464,17 +464,18 @@ function renderPositions(ps, orders) {
       el("td", {class: "num"}, o.qty), el("td", {class: "num"}, pfmt(o.price)), el("td", {class: "num"}, pfmt(S.prices[o.symbol])),
       el("td", {colspan: "5"}, el("span", {class: "pill warn"}, el("span", {class: "dot"}), "Bekliyor: fiyat limit seviyesine gelirse dolacak")), el("td", {}, "")));
   rows.unshift(...wrows);
-  put("w_pos", rows.length ? rows : [el("tr", {}, el("td", {colspan: "11", class: "muted"}, "Açık pozisyon yok. Ana robot 75+ puan ve risk onayı bekliyor."))]);
+  put("w_pos", rows.length ? rows : [el("tr", {}, el("td", {colspan: "11", class: "muted"}, "Açık pozisyon yok. Ana robot 70+ puan ve risk onayı bekliyor."))]);
   put("m_pos", (open.length ? open : []).map(p => el("div", {class: "mcard"},
       el("div", {style: "display:flex;justify-content:space-between;align-items:center"}, el("b", {style: "font-size:17px"}, p.symbol + " " + p.side),
          el("span", {class: "mbig " + cls(p.unrealized_net_pnl)}, usd(p.unrealized_net_pnl))),
       el("div", {class: "num muted"}, "giriş " + pfmt(p.entry_price) + " · anlık " + pfmt(S.prices[p.symbol] || p.last_price)),
       el("div", {class: "num muted"}, "stop " + pfmt(p.current_stop) + " · hedef " + pfmt(p.take_profit) + " · " + (LOCK[p.lock_state] ?? "")),
+      p.partial_taken ? el("div", {class: "pos"}, "Yarısı kârla kapatıldı: " + usd(p.partial_realized) + " · kalan yarı devam ediyor") : null,
       el("button", {class: "danger", type: "button", onclick: () => closePos(p.id, p.symbol)}, "Pozisyonu kapat")))
     .concat(waiting.map(o => el("div", {class: "mcard"}, el("div", {style: "display:flex;justify-content:space-between"},
         el("b", {}, o.symbol + " " + (o.side === "Buy" ? "LONG" : "SHORT")), el("span", {class: "pill warn"}, el("span", {class: "dot"}), "Limit emir bekliyor")),
         el("div", {class: "num muted"}, "limit " + pfmt(o.price) + " · anlık " + pfmt(S.prices[o.symbol]) + " · miktar " + o.qty))))
-    .concat(open.length || waiting.length ? [] : [el("div", {class: "mcard muted"}, "Açık pozisyon yok. Ana robot 75+ puan ve risk onayı bekliyor.")]));
+    .concat(open.length || waiting.length ? [] : [el("div", {class: "mcard muted"}, "Açık pozisyon yok. Ana robot 70+ puan ve risk onayı bekliyor.")]));
 }
 
 function renderDecisions(ds) {

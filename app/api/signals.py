@@ -222,6 +222,8 @@ def positions(status: str | None = None, limit: int = Query(50, ge=1, le=500),
             "realized_net_pnl": str(p.realized_net_pnl) if p.realized_net_pnl is not None else None,
             "fees": str(p.entry_fee + p.exit_fee), "risk_usd": str(p.risk_usd) if p.risk_usd is not None else None,
             "lock_state": p.lock_state, "peak_net_pnl_pct": str(p.peak_net_pnl_pct or 0), "status": p.status,
+            "partial_taken": bool(p.partial_taken),
+            "partial_realized": str(p.partial_realized) if p.partial_realized else None,
             "opened_at": p.opened_at.isoformat(), "closed_at": p.closed_at.isoformat() if p.closed_at else None,
             "duration_min": int(((p.closed_at or datetime.now(timezone.utc)) - (p.opened_at if p.opened_at.tzinfo else p.opened_at.replace(tzinfo=timezone.utc))).total_seconds() // 60),
         })

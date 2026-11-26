@@ -66,8 +66,11 @@ class FakeBybitPrivate:
                                      "cumExecQty": str(qty), "avgPrice": str(self.fill_price),
                                      "cumExecFee": str(qty * self.fill_price * Decimal("0.00055"))}
             if params.get("reduceOnly"):
-                pos = self.positions.pop(sym, None)
-                if pos:
+                pos = self.positions.get(sym)
+                if pos and qty < Decimal(pos["size"]):          # kısmi azaltma
+                    pos["size"] = str(Decimal(pos["size"]) - qty)
+                elif pos:
+                    self.positions.pop(sym)
                     self._record_close(sym, pos, self.fill_price)
             elif not self.lose_order or self.timeout_on_create:
                 if not self.lose_order:

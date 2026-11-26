@@ -45,13 +45,17 @@ class PositionMonitor:
         self.missing: dict[int, int] = {}
         self._atr: dict[str, tuple[float, Decimal | None]] = {}
         self._ticks: dict[str, Decimal] = {}
+        self._steps: dict[str, Decimal] = {}
 
     def _open(self) -> list[dict]:
         with session_scope() as s:
             rows = s.scalars(select(Position).where(Position.status != "KAPALI", Position.venue == self.x.venue))
             return [{"id": p.id, "symbol": p.symbol, "long": p.side == "LONG", "qty": p.qty, "entry": p.entry_price,
                      "stop": p.current_stop, "tp": p.take_profit, "entry_fee": p.entry_fee,
-                     "opened_ms": int(p.opened_at.timestamp() * 1000), "status": p.status} for p in rows]
+                     "opened_ms": int(p.opened_at.timestamp() * 1000), "status": p.status,
+                     # kısmi kapatmadan sonraki kapanış kayıtları: kısmi emir ikinci kez sayılmasın
+                     "since_ms": int((p.partial_at or p.opened_at).timestamp() * 1000) + (1000 if p.partial_at else 0)}
+                    for p in rows]
 
     def _mark(self, pid: int, price: Decimal) -> None:
         with session_scope() as s:
@@ -61,7 +65,8 @@ class PositionMonitor:
             d = 1 if p.side == "LONG" else -1
             est_exit_fee = p.qty * price * self.x.fee_pct / 100
             p.last_price = price
-            p.unrealized_net_pnl = (price - p.entry_price) * p.qty * d - p.entry_fee - est_exit_fee
+            p.unrealized_net_pnl = ((price - p.entry_price) * p.qty * d - p.entry_fee - est_exit_fee
+                                    + (p.partial_realized or Decimal(0)))   # kısmi kâr dahil toplam
 
     def _load_ticks(self) -> None:
         with session_scope() as s:
@@ -69,6 +74,8 @@ class PositionMonitor:
             for c in (snap.result.get("candidates", []) if snap else []):
                 if c.get("tick_size") not in (None, "", "0"):
                     self._ticks[c["symbol"]] = Decimal(c["tick_size"])
+                if c.get("qty_step") not in (None, "", "0"):
+                    self._steps[c["symbol"]] = Decimal(c["qty_step"])
 
     async def atr(self, symbol: str) -> Decimal | None:
         """15 dakikalık ATR(14), 5 dakika önbellekli."""
@@ -92,6 +99,20 @@ class PositionMonitor:
                                    p.current_stop, p.peak_net_pnl_pct or Decimal(0), p.high_water or p.entry_price,
                                    p.lock_state or 0, p.strategy_id, self.x.fee_pct, self._ticks.get(p.symbol))
             symbol, tp = p.symbol, p.take_profit
+            long, entry, init_stop, partial_done = p.side == "LONG", p.entry_price, p.initial_stop, p.partial_taken
+        cfg = self.x.s
+        if cfg.partial_tp_enabled and not partial_done:
+            r_dist = abs(entry - init_stop) * Decimal(str(cfg.partial_tp_r))
+            trigger = entry + r_dist if long else entry - r_dist
+            if (long and price >= trigger) or (not long and price <= trigger):
+                res = await self.x.take_partial(pid, Decimal(str(cfg.partial_tp_fraction)), self._steps.get(symbol))
+                if res.get("status") == "DOLDU":
+                    return "moved"
+                with session_scope() as s:   # kısmi kapatma sonrası güncel görünüm
+                    p = s.get(Position, pid)
+                    view = PL.PositionView(p.side == "LONG", p.qty, p.entry_price, p.entry_fee, p.initial_stop,
+                                           p.current_stop, p.peak_net_pnl_pct or Decimal(0), p.high_water or p.entry_price,
+                                           p.lock_state or 0, p.strategy_id, self.x.fee_pct, self._ticks.get(p.symbol))
         try:
             atr = await self.atr(symbol)
         except Exception:  # noqa: BLE001 – ATR yoksa trailing bileşeni devre dışı kalır
@@ -183,7 +204,7 @@ class PositionMonitor:
                 await self.protect(p["id"], ep.mark_price)
             return False
         # Borsada pozisyon yok: stop/hedef ile kapanmış
-        cr = await self.b.closed_result(p["symbol"], p["long"], p["entry"], p["qty"], p["opened_ms"])
+        cr = await self.b.closed_result(p["symbol"], p["long"], p["entry"], p["qty"], p["since_ms"])
         if cr is None:
             n = self.missing[p["id"]] = self.missing.get(p["id"], 0) + 1
             if n < MISSING_BEFORE_ESTIMATE:

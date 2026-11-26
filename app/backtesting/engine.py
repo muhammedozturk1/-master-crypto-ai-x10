@@ -55,6 +55,10 @@ class BacktestParams:
     start_capital: float = 200.0
     allow_short: bool = True
     limits: RiskLimits = field(default_factory=RiskLimits)
+    risk_threshold: float = 75        # sistem modu: ana robotun risk değerlendirmesine gönderme eşiği
+    partial_tp: bool = False          # 1R'de pozisyonun bir kısmını kapat, stopu başabaşa çek
+    partial_r: float = 1.0
+    partial_fraction: float = 0.5
 
 
 @dataclass
@@ -75,6 +79,9 @@ class _Pos:
     high_water: Decimal | None = None
     state: int = 0
     peak_net_usd: float = 0.0
+    partial_done: bool = False
+    partial_net: float = 0.0          # kısmi kapatmanın net sonucu (giriş komisyonu hariç)
+    pending_stop: float | None = None # kısmi kârdan sonra başabaş stop: bir sonraki mumdan geçerli
 
 
 @dataclass
@@ -155,6 +162,11 @@ class Backtester:
         bar = cs[i]
         o, h, l, c = float(bar.open), float(bar.high), float(bar.low), float(bar.close)
         for pos in [x for x in self.open if x.symbol == sym]:
+            if pos.pending_stop is not None:
+                better = pos.pending_stop > pos.stop if pos.long else pos.pending_stop < pos.stop
+                if better:
+                    pos.stop = pos.pending_stop
+                pos.pending_stop = None
             # Zirve net kâr mum içi en lehte fiyattan izlenir (kapanıştan değil)
             fav = h if pos.long else l
             fav_net = (fav - pos.entry) * pos.qty * (1 if pos.long else -1) - pos.entry_fee - pos.qty * fav * self.p.fee_pct / 100
@@ -166,6 +178,20 @@ class Backtester:
                 self._close(pos, _fill(px, pos.long, self.p, False), bar.end_ms,
                             "kar_kilidi" if pos.state >= PL.BREAK_EVEN and pos.stop != pos.initial_stop else "stop")
                 continue
+            if self.p.partial_tp and not pos.partial_done:
+                r = abs(pos.entry - pos.initial_stop) * self.p.partial_r
+                trig = pos.entry + r if pos.long else pos.entry - r
+                if (h >= trig) if pos.long else (l <= trig):
+                    px = max(o, trig) if pos.long else min(o, trig)
+                    fill = _fill(px, pos.long, self.p, False)
+                    q = pos.qty * self.p.partial_fraction
+                    d = 1 if pos.long else -1
+                    pos.partial_net += (fill - pos.entry) * q * d - q * fill * self.p.fee_pct / 100
+                    pos.qty -= q
+                    pos.partial_done = True
+                    be = pos.entry * (1 + d * 2 * self.p.fee_pct / 100)
+                    pos.pending_stop = be               # canlıdaki gibi: stop bir sonraki mumdan geçerli
+                    pos.state = max(pos.state, PL.BREAK_EVEN)
             if tp_hit:
                 px = max(o, pos.tp) if pos.long else min(o, pos.tp)
                 self._close(pos, _fill(px, pos.long, self.p, False), bar.end_ms, "hedef")
@@ -189,7 +215,7 @@ class Backtester:
     def _close(self, pos: _Pos, px: float, t: int, reason: str) -> None:
         d = 1 if pos.long else -1
         exit_fee = pos.qty * px * self.p.fee_pct / 100
-        net = (px - pos.entry) * pos.qty * d - pos.entry_fee - exit_fee
+        net = (px - pos.entry) * pos.qty * d - pos.entry_fee - exit_fee + pos.partial_net
         self.realized += net
         self.open.remove(pos)
         self.trades.append(Trade(pos.symbol, pos.strategy, pos.bot_id, pos.long, pos.entry_ms, t, pos.entry, px,
@@ -202,7 +228,7 @@ class Backtester:
             if i is None:
                 continue
             px = float(self.data[pos.symbol][i].close)
-            unreal += (px - pos.entry) * pos.qty * (1 if pos.long else -1) - pos.entry_fee
+            unreal += (px - pos.entry) * pos.qty * (1 if pos.long else -1) - pos.entry_fee + pos.partial_net
         self.equity.append((t, self.p.start_capital + self.realized + unreal))
 
     # ------------------------------------------------------------------
@@ -242,7 +268,7 @@ class Backtester:
         # sistem modu: ana robot + BOT07
         if any(x.symbol == sym for x in self.open + self.pending):
             return
-        d = decide(ctx, sigs, MarketInputs())
+        d = decide(ctx, sigs, MarketInputs(risk_threshold=self.p.risk_threshold))
         if d is None:
             return
         self.decisions[d.outcome] = self.decisions.get(d.outcome, 0) + 1
@@ -297,6 +323,7 @@ class Backtester:
         oos = [t for t in trades if t.exit_ms >= split]
         return {
             "params": {"timeframe": self.p.timeframe, "mode": self.p.mode, "profit_lock": self.p.profit_lock,
+                       "risk_threshold": self.p.risk_threshold, "partial_tp": self.p.partial_tp,
                        "bots": [b.bot_id for b in self.bots], "fee_pct": self.p.fee_pct,
                        "half_spread_pct": self.p.half_spread_pct, "slippage_pct": self.p.slippage_pct,
                        "symbols": sorted(self.data), "from": _iso(start), "to": _iso(end)},

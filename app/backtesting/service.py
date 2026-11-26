@@ -62,7 +62,9 @@ async def run_job(run_id: int, req: dict, market: BybitPublic, settings: Setting
         params = BacktestParams(timeframe=tf, mode=req["mode"], profit_lock=True, bots=tuple(req["bots"]),
                                 fee_pct=settings.taker_fee_pct, limits=settings.risk,
                                 start_capital=float(settings.risk.starting_capital_usd),
-                                allow_short=settings.market_type.value == "linear")
+                                allow_short=settings.market_type.value == "linear",
+                                risk_threshold=float(req.get("risk_threshold", 75)),
+                                partial_tp=bool(req.get("partial_tp", False)))
         result = await asyncio.to_thread(Backtester(data, htf, btc, params).run)
         if req.get("compare_profit_lock"):
             params_off = BacktestParams(**{**params.__dict__, "profit_lock": False})

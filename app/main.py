@@ -78,6 +78,9 @@ async def equity_loop(settings, every_sec: int = 300) -> None:
 BACKTEST_SUITE = [("15m", "strateji"), ("15m", "sistem"), ("1h", "strateji"), ("1h", "sistem")]
 
 
+COMPARE_VARIANTS = [(75, False), (70, False), (75, True), (70, True)]
+
+
 async def backtest_suite(app: FastAPI, settings, delay_sec: int = 120) -> None:
     """Doğrulama paketi: her (zaman dilimi, mod) için henüz yoksa bir backtest çalıştırır, sırayla.
     15m için 30 gün, 1h için 90 gün; en likit 5 parite; kâr kilidi açık/kapalı karşılaştırmalı."""
@@ -100,6 +103,28 @@ async def backtest_suite(app: FastAPI, settings, delay_sec: int = 120) -> None:
             rid = run.id
         log.info("Doğrulama backtest'i başlatıldı #%s: %s %s %s", rid, tf, mode, symbols)
         await run_job(rid, req, app.state.market, settings)
+    # Ayar karşılaştırması (26.11): risk eşiği 75/70 × kısmi kâr kapalı/açık, sistem modu, aynı pariteler
+    for tf in ("1h", "15m"):
+        with session_scope() as s:   # yarıda kaldıysa aynı paritelerle devam: karşılaştırma adil kalsın
+            prev = [r.params.get("symbols") for r in s.scalars(select(BacktestRun).order_by(BacktestRun.id))
+                    if r.params.get("variant") and r.params.get("timeframe") == tf]
+        symbols = prev[0] if prev else [c["symbol"] for c in latest_candidates(5)]
+        for th, partial in COMPARE_VARIANTS:
+            variant = f"esik{th}-{'kismi' if partial else 'tam'}"
+            with session_scope() as s:
+                done = {(r.params.get("timeframe"), r.params.get("variant")) for r in s.scalars(select(BacktestRun))
+                        if r.status == "BITTI"}
+                if (tf, variant) in done or not symbols:
+                    continue
+                req = {"timeframe": tf, "days": 30 if tf == "15m" else 90, "symbols": symbols, "mode": "sistem",
+                       "compare_profit_lock": False, "bots": list(DEFAULT_BOTS[tf]), "auto": True,
+                       "risk_threshold": th, "partial_tp": partial, "variant": variant}
+                run = BacktestRun(params=req)
+                s.add(run)
+                s.flush()
+                rid = run.id
+            log.info("Karşılaştırma backtest'i #%s: %s %s", rid, tf, variant)
+            await run_job(rid, req, app.state.market, settings)
 
 
 async def check_key_permissions(private) -> dict:

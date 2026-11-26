@@ -25,7 +25,8 @@ PLAN = {"strategy": "nr7_breakout", "bot_id": "BOT10", "entry_low": "99.5", "ent
 
 @pytest.fixture
 def settings(tmp_path):
-    s = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/x.db", entry_order_type="market")
+    s = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path}/x.db", entry_order_type="market",
+                 partial_tp_enabled=False)
     dbs.configure(s.sqlalchemy_url)
     dbs.init_db()
     with dbs.session_scope() as ss:
@@ -518,3 +519,65 @@ def test_contract_needing_agreement_is_skipped_afterwards(settings):
     assert r["status"] == "REDDEDILDI" and "SNDKUSDT" in ex.blocked
     r2 = run(ex.open_from_decision(2, "SNDKUSDT", "LONG", PLAN))
     assert r2["status"] == "ATLANDI" and "sözleşme" in r2["reason"]
+
+
+# --- Kısmi kâr alma -------------------------------------------------------------
+
+def test_partial_take_profit_at_1r_halves_and_moves_stop_to_breakeven(settings):
+    settings.partial_tp_enabled = True
+    fake = FakeBybitPrivate(fill_price="100")
+    ex = bybit_exec(settings, fake)
+    run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))          # giriş 100, stop 98 → 1R = 102
+    mon = PositionMonitor(ex)
+    fake.fill_price = D("102")
+    fake.positions["BTCUSDT"]["markPrice"] = "102"
+    run(mon.cycle())
+    with dbs.session_scope() as s:
+        p = s.query(Position).one()
+        assert p.partial_taken and p.qty == D("0.25")
+        assert p.partial_realized == pytest.approx((D(2) * D("0.25")) - D("0.25") * D(102) * D("0.00055"), abs=D("1e-9"))
+        assert p.current_stop > p.entry_price                                       # başabaş + komisyon
+        assert s.query(Order).filter(Order.purpose == "KISMI_CIKIS").one().status == "DOLDU"
+    assert D(fake.positions["BTCUSDT"]["size"]) == D("0.25")
+    assert D(fake.positions["BTCUSDT"]["stopLoss"]) > D("100")
+    # ikinci tur: tekrar kısmi kapatma yok
+    run(mon.cycle())
+    assert sum(1 for path, p in fake.calls if path == "/v5/order/create" and p.get("reduceOnly")) == 1
+    # kalan yarı stoptan kapanır: toplam net = kısmi + kalan
+    fake.closed["BTCUSDT"] = []
+    fake.stop_out("BTCUSDT", "100.11")
+    run(mon.cycle())
+    with dbs.session_scope() as s:
+        p = s.query(Position).one()
+        assert p.status == "KAPALI" and p.realized_net_pnl > p.partial_realized - p.entry_fee - D("0.05")
+        assert p.realized_net_pnl > 0
+
+
+def test_partial_not_taken_below_1r(settings):
+    settings.partial_tp_enabled = True
+    fake = FakeBybitPrivate(fill_price="100")
+    ex = bybit_exec(settings, fake)
+    run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    fake.positions["BTCUSDT"]["markPrice"] = "101.9"
+    run(PositionMonitor(ex).cycle())
+    with dbs.session_scope() as s:
+        assert not s.query(Position).one().partial_taken
+
+
+def test_partial_skipped_when_qty_cannot_be_split(settings):
+    settings.partial_tp_enabled = True
+    ex = bybit_exec(settings, FakeBybitPrivate(fill_price="100"))
+    run(ex.open_from_decision(1, "BTCUSDT", "LONG", {**PLAN, "qty": "0.001"}))
+    r = run(ex.take_partial(1, D("0.5"), D("0.001")))
+    assert r["status"] == "ATLANDI"
+    with dbs.session_scope() as s:
+        p = s.query(Position).one()
+        assert p.partial_taken and p.qty == D("0.001")
+
+
+def test_risk_threshold_is_configurable_and_clamped():
+    from app.master_robot.decision_engine import outcome_for
+    assert outcome_for(72, 75) == "DOGRULAMA" and outcome_for(72, 70) == "RISK_KONTROLU"
+    assert outcome_for(64, 50) == "IZLEME"             # eşik 65in altına inemez
+    assert outcome_for(84, 95) == "DOGRULAMA"          # eşik 85e sabitlenir
+    assert outcome_for(90, 70) == "YUKSEK_ONCELIK" and outcome_for(40, 70) == "REDDEDILDI"
