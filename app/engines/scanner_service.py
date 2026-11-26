@@ -22,8 +22,18 @@ def scan_config(settings: Settings) -> ScanConfig:
         top_n=settings.scan_top_n,
         min_listing_days=settings.min_listing_days,
         whitelist=tuple(settings.symbol_whitelist),
-        blacklist=tuple(settings.symbol_blacklist),
+        blacklist=tuple(settings.symbol_blacklist) + tuple(sorted(_blocked())),
     )
+
+
+def _blocked() -> set[str]:
+    """Emir kabul etmeyen (sözleşme imzası isteyen) pariteler taramaya alınmaz: aday yerini
+    işlem açılabilecek paritelere bırakır."""
+    try:
+        from app.bots.bot09_execution import agreement_blocked_symbols
+        return agreement_blocked_symbols()
+    except Exception:  # noqa: BLE001
+        return set()
 
 
 async def scan_once(client: BybitPublic, settings: Settings) -> ScanSnapshot:

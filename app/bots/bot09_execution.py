@@ -44,6 +44,17 @@ def _round_down(x: Decimal, step: Decimal | None) -> Decimal:
     return (x / step).to_integral_value(rounding=ROUND_DOWN) * step
 
 
+def agreement_blocked_symbols() -> set[str]:
+    """Bybit'in 'sözleşme imzalanmalı' (110126) diyerek emir kabul etmediği pariteler (ör. hisse
+    kontratları SNDK, SPCX). Kayıtlardan okunur; yeniden başlatmada da hatırlanır."""
+    with session_scope() as s:
+        ids = [a.detail.get("client_id") for a in s.scalars(select(AuditLog).where(AuditLog.event == "emir_reddedildi"))
+               if "110126" in str((a.detail or {}).get("error", ""))]
+        if not ids:
+            return set()
+        return set(s.scalars(select(Order.symbol).where(Order.client_order_id.in_(ids))))
+
+
 LIMIT_WAIT_SEC = {"5m": 120, "15m": 300, "1h": 900}   # limit giriş emri en fazla bu kadar bekler
 DEFAULT_LIMIT_WAIT_SEC = 300
 
@@ -84,7 +95,10 @@ class ExecutionService:
         self.fee_pct = Decimal(str(settings.taker_fee_pct))
         self.maker_pct = Decimal(str(settings.maker_fee_pct))
         self.pending: dict[str, asyncio.Task] = {}      # client_id → bekleyen limit emir izleyicisi
-        self.blocked: set[str] = set()   # borsanın işlem izni vermediği pariteler (ör. sözleşme imzası gereken)
+        try:   # borsanın işlem izni vermediği pariteler (ör. sözleşme imzası gereken)
+            self.blocked: set[str] = agreement_blocked_symbols()
+        except Exception:  # noqa: BLE001 – tablo henüz yoksa
+            self.blocked = set()
 
     def pending_symbols(self) -> set[str]:
         """Bekleyen (dolmamış) giriş emri olan pariteler; uzlaştırma bunları sahipsiz saymaz."""

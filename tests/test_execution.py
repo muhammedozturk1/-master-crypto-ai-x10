@@ -581,3 +581,18 @@ def test_risk_threshold_is_configurable_and_clamped():
     assert outcome_for(64, 50) == "IZLEME"             # eşik 65in altına inemez
     assert outcome_for(84, 95) == "DOGRULAMA"          # eşik 85e sabitlenir
     assert outcome_for(90, 70) == "YUKSEK_ONCELIK" and outcome_for(40, 70) == "REDDEDILDI"
+
+
+def test_agreement_blocked_symbols_persist_and_leave_scanner(settings):
+    from app.bots.bot09_execution import agreement_blocked_symbols
+    from app.engines.scanner_service import scan_config
+
+    class Agreement(FakeBybitPrivate):
+        def handler(self, req):
+            if req.url.path == "/v5/order/create":
+                return httpx.Response(200, json={"retCode": 110126, "retMsg": "You must sign the required agreement before trading this contract.", "result": {}})
+            return super().handler(req)
+    run(bybit_exec(settings, Agreement()).open_from_decision(1, "SPCXUSDT", "LONG", PLAN))
+    assert agreement_blocked_symbols() == {"SPCXUSDT"}
+    assert "SPCXUSDT" in bybit_exec(settings, FakeBybitPrivate()).blocked      # yeniden başlatmada hatırlanır
+    assert "SPCXUSDT" in scan_config(settings).blacklist
