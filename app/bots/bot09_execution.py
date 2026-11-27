@@ -293,6 +293,12 @@ class ExecutionService:
                            margin_usd=fill.filled_qty * fill.avg_price / self.s.risk.leverage)
             s.add(pos)
             s.flush()
+            try:
+                from app.notifications.trade_note import build_note
+                pos.entry_note = build_note(s, decision_id)
+            except Exception:  # noqa: BLE001 – not üretilemese de pozisyon kaydı sürer
+                log.exception("İşlem notu üretilemedi")
+            note = pos.entry_note
             o.position_id, o.status, o.filled_qty = pos.id, status, fill.filled_qty
             o.avg_fill_price = fill.avg_price
             o.exchange_order_id = fill.exchange_order_id or o.exchange_order_id
@@ -306,7 +312,8 @@ class ExecutionService:
                 safe_mode(f"{symbol}: koruyucu stop kurulamadı, pozisyon kapatıldı")
                 return {"status": "KAPATILDI", "reason": "stop kurulamadı", "position_id": pos_id}
         audit("pozisyon_acildi", {"position_id": pos_id, "symbol": symbol, "side": "LONG" if long else "SHORT",
-                                  "qty": str(fill.filled_qty), "price": str(fill.avg_price), "venue": self.venue})
+                                  "qty": str(fill.filled_qty), "price": str(fill.avg_price), "venue": self.venue,
+                                  "note": note})
         log.info("Pozisyon açıldı #%s %s %s %s @ %s (%s)", pos_id, symbol, "LONG" if long else "SHORT",
                  fill.filled_qty, fill.avg_price, self.venue)
         return {"status": status, "position_id": pos_id, "qty": str(fill.filled_qty), "price": str(fill.avg_price)}

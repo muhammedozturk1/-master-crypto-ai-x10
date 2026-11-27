@@ -51,6 +51,7 @@ ADDED_COLUMNS = [
     ("positions", "partial_taken", "BOOLEAN"),
     ("positions", "partial_realized", "NUMERIC(20, 8)"),
     ("positions", "partial_at", "TIMESTAMP WITH TIME ZONE"),
+    ("positions", "entry_note", "TEXT"),
 ]
 UNIQUE_INDEXES = [("uq_signals_dedup", "signals", "dedup_key"), ("uq_decisions_key", "decisions", "decision_key")]
 

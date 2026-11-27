@@ -60,6 +60,9 @@ def format_event(ev: str, d: dict) -> str | None:
             lines.append(f"{label}: {v}")
     if "reasons" in d:
         lines.append("Neden: " + "; ".join(map(str, d["reasons"]))[:300])
+    if d.get("note"):
+        lines.append("")
+        lines.append(str(d["note"])[:3000])
     return "\n".join(lines)
 
 

@@ -629,3 +629,49 @@ def test_position_history_lists_closed_trades_with_reason(settings):
     assert h["count"] == 1 and h["losses"] == 1 and D(h["total_net"]) < 0
     t = h["trades"][0]
     assert t["symbol"] == "BTCUSDT" and t["exit_estimated"] and D(t["exit_price"]) == D("98") and t["closed_at"]
+
+
+def _decision_with_reasons():
+    from app.database.models import SignalRecord
+    with dbs.session_scope() as s:
+        d = s.get(Decision, 1)
+        d.direction, d.timeframe, d.market_regime, d.score = "LONG", "15m", "GUCLU_YUKSELIS", 78
+        d.plan = PLAN
+        d.contributions = {"AL": 78.0, "SAT": 20.0, "rejim": {"adx": 41.2},
+                           "puanlar": {"teknik": 17, "trend": 18, "hacim_likidite": 15, "rejim_uyumu": 15,
+                                       "haber": 5, "akis": 4, "performans": 4},
+                           "risk": {"risk_usd": "2.0", "risk_budget": "2.0", "notional": "350", "leverage": 10},
+                           "notlar": ["akış/on-chain: on-chain veri yok, nötr puan"]}
+        s.add(SignalRecord(bot_id="BOT10", strategy_id="nr7_breakout+ema", symbol="BTCUSDT", timeframe="15m",
+                           action="AL", confidence=85, decision_id=1,
+                           payload={"reason": "Yukarı NR7 kırılımı kapanışla doğrulandı; hacim 2.4x"}))
+        s.add(SignalRecord(bot_id="BOT02", strategy_id="trend_pullback", symbol="BTCUSDT", timeframe="15m",
+                           action="AL", confidence=70, decision_id=1, payload={"reason": "EMA20'den tepki"}))
+        s.add(SignalRecord(bot_id="BOT06", strategy_id="funding", symbol="BTCUSDT", timeframe="15m",
+                           action="SAT", confidence=40, decision_id=1, payload={"reason": "funding yüksek"}))
+
+
+def test_trade_note_explains_why(settings):
+    from app.notifications.trade_note import build_note
+    _decision_with_reasons()
+    with dbs.session_scope() as s:
+        note = build_note(s, 1)
+    assert note.startswith("Neden alındı — BTCUSDT LONG (15m)")
+    assert "puanı 78/100" in note and "güçlü yükseliş (ADX 41)" in note
+    assert note.index("BOT10 NR7") < note.index("BOT02 Trend")             # güvene göre sıralı
+    assert "NR7 kırılımı kapanışla doğrulandı" in note and "Ters yönde: BOT06 (40)" in note
+    assert "teknik 17/20" in note and "stop 98 (-2.00%)" in note and "hedef 105 (+5.00%)" in note
+    assert "Risk: 2.00 $" in note and "10x" in note and "on-chain veri yok" in note
+
+
+def test_position_open_stores_note_and_telegram_shows_it(settings):
+    from app.notifications.telegram import format_event
+    _decision_with_reasons()
+    ex = bybit_exec(settings, FakeBybitPrivate(fill_price="100"))
+    run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    with dbs.session_scope() as s:
+        p = s.query(Position).one()
+        assert p.entry_note and "NR7" in p.entry_note
+        ev = s.query(AuditLog).filter(AuditLog.event == "pozisyon_acildi").one()
+        msg = format_event(ev.event, ev.detail)
+    assert "📈 Yeni işlem açıldı" in msg and "Neden alındı — BTCUSDT LONG" in msg and "BOT10 NR7" in msg

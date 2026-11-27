@@ -201,6 +201,17 @@ def risk_status(session: Session = Depends(get_session)) -> dict:
     }
 
 
+def _note(session: Session, p) -> str | None:
+    """Kayıtlı işlem notu; eski pozisyonlarda (not alanı eklenmeden önce) kayıtlı karardan üretilir."""
+    if p.entry_note:
+        return p.entry_note
+    try:
+        from app.notifications.trade_note import build_note
+        return build_note(session, p.decision_id)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @router.get("/positions")
 def positions(status: str | None = None, limit: int = Query(50, ge=1, le=500),
               session: Session = Depends(get_session)) -> list[dict]:
@@ -224,6 +235,7 @@ def positions(status: str | None = None, limit: int = Query(50, ge=1, le=500),
             "lock_state": p.lock_state, "peak_net_pnl_pct": str(p.peak_net_pnl_pct or 0), "status": p.status,
             "partial_taken": bool(p.partial_taken),
             "partial_realized": str(p.partial_realized) if p.partial_realized else None,
+            "note": _note(session, p),
             "opened_at": p.opened_at.isoformat(), "closed_at": p.closed_at.isoformat() if p.closed_at else None,
             "duration_min": int(((p.closed_at or datetime.now(timezone.utc)) - (p.opened_at if p.opened_at.tzinfo else p.opened_at.replace(tzinfo=timezone.utc))).total_seconds() // 60),
         })
@@ -253,7 +265,7 @@ def position_history(limit: int = Query(100, ge=1, le=1000), session: Session = 
             "partial_taken": bool(p.partial_taken),
             "partial_realized": str(p.partial_realized) if p.partial_realized else None,
             "net_pnl": str(p.realized_net_pnl) if p.realized_net_pnl is not None else None,
-            "fees": str((p.entry_fee or 0) + (p.exit_fee or 0)), "venue": p.venue,
+            "fees": str((p.entry_fee or 0) + (p.exit_fee or 0)), "venue": p.venue, "note": _note(session, p),
             "opened_at": p.opened_at.isoformat(), "closed_at": p.closed_at.isoformat() if p.closed_at else None,
         })
     nets = [Decimal(t["net_pnl"]) for t in trades if t["net_pnl"] is not None]

@@ -81,6 +81,10 @@ body.m #web{display:none}body.m #mob{display:flex}body.m .tabbar{display:grid}
 body.m .top{padding:12px}body.m .top h1{font-size:16px}body.m .webonly{display:none}
 body:not(.m) .mobonly{display:none}
 
+details.why summary{cursor:pointer;color:var(--blue);font-size:12.5px;list-style:none}
+details.why summary::-webkit-details-marker{display:none}
+details.why summary::before{content:"▸ "}details.why[open] summary::before{content:"▾ "}
+details.why .txt{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--mute);margin-top:6px;max-width:720px}
 #login{position:fixed;inset:0;background:rgba(13,17,23,.97);display:none;align-items:center;justify-content:center;padding:16px;z-index:20}
 #login form{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;width:min(420px,100%);display:flex;flex-direction:column;gap:12px}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:96px;background:#21262d;border:1px solid var(--line);padding:10px 14px;border-radius:10px;display:none;max-width:90vw;z-index:21}
@@ -458,7 +462,7 @@ function renderPositions(ps, orders) {
   const rows = [...open, ...recent].map(p => {
     const isOpen = p.status !== "KAPALI", pnl = isOpen ? p.unrealized_net_pnl : p.realized_net_pnl;
     return el("tr", {class: isOpen ? "" : "muted"},
-      el("td", {}, el("b", {}, p.symbol), el("div", {class: "muted"}, (p.strategy || "").split("+")[0])), el("td", {class: p.side === "LONG" ? "pos" : "neg"}, p.side),
+      el("td", {}, el("b", {}, p.symbol), el("div", {class: "muted"}, (p.strategy || "").split("+")[0]), why(p.note)), el("td", {class: p.side === "LONG" ? "pos" : "neg"}, p.side),
       el("td", {class: "num"}, fmt(p.notional_usd) + " $"), el("td", {class: "num"}, pfmt(p.entry_price)), el("td", {class: "num"}, pfmt(isOpen && S.prices[p.symbol] ? S.prices[p.symbol] : p.last_price)),
       el("td", {class: "num"}, pfmt(p.current_stop)), el("td", {class: "num"}, pfmt(p.take_profit)), el("td", {class: "num"}, "%" + fmt(p.peak_net_pnl_pct)),
       el("td", {}, (LOCK[p.lock_state] ?? "—") + (p.partial_taken ? " · yarısı alındı" : "")), el("td", {class: "num " + cls(pnl)}, usd(pnl)),
@@ -476,11 +480,16 @@ function renderPositions(ps, orders) {
       el("div", {class: "num muted"}, "giriş " + pfmt(p.entry_price) + " · anlık " + pfmt(S.prices[p.symbol] || p.last_price)),
       el("div", {class: "num muted"}, "stop " + pfmt(p.current_stop) + " · hedef " + pfmt(p.take_profit) + " · " + (LOCK[p.lock_state] ?? "")),
       p.partial_taken ? el("div", {class: "pos"}, "Yarısı kârla kapatıldı: " + usd(p.partial_realized) + " · kalan yarı devam ediyor") : null,
+      why(p.note),
       el("button", {class: "danger", type: "button", onclick: () => closePos(p.id, p.symbol)}, "Pozisyonu kapat")))
     .concat(waiting.map(o => el("div", {class: "mcard"}, el("div", {style: "display:flex;justify-content:space-between"},
         el("b", {}, o.symbol + " " + (o.side === "Buy" ? "LONG" : "SHORT")), el("span", {class: "pill warn"}, el("span", {class: "dot"}), "Limit emir bekliyor")),
         el("div", {class: "num muted"}, "limit " + pfmt(o.price) + " · anlık " + pfmt(S.prices[o.symbol]) + " · miktar " + o.qty))))
     .concat(open.length || waiting.length ? [] : [el("div", {class: "mcard muted"}, "Açık pozisyon yok. Ana robot 70+ puan ve risk onayı bekliyor.")]));
+}
+
+function why(note) {   // "neden alındı" açılır notu; metin textContent ile yazılır
+  return note ? el("details", {class: "why"}, el("summary", {}, "Neden alındı?"), el("div", {class: "txt"}, note)) : null;
 }
 
 function shortReason(r) {
@@ -493,7 +502,7 @@ function renderHistory(h) {
   text("w_histsum", sum); text("m_histsum", sum);
   const dtf = (iso) => iso ? new Date(iso).toLocaleString("tr-TR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
   put("w_hist", h.trades.length ? h.trades.map(t => el("tr", {},
-      el("td", {class: "num"}, dtf(t.closed_at)), el("td", {}, el("b", {}, t.symbol)), el("td", {class: t.side === "LONG" ? "pos" : "neg"}, t.side),
+      el("td", {class: "num"}, dtf(t.closed_at)), el("td", {}, el("b", {}, t.symbol), why(t.note)), el("td", {class: t.side === "LONG" ? "pos" : "neg"}, t.side),
       el("td", {class: "muted"}, t.strategy), el("td", {class: "num"}, t.qty), el("td", {class: "num"}, pfmt(t.entry_price)),
       el("td", {class: "num"}, pfmt(t.exit_price) + (t.exit_estimated ? " ~" : "")), el("td", {class: "num"}, t.partial_taken ? usd(t.partial_realized) : "—"),
       el("td", {class: "num muted"}, fmt(t.fees, 3) + " $"), el("td", {class: "num " + cls(t.net_pnl)}, el("b", {}, usd(t.net_pnl))),
@@ -505,7 +514,7 @@ function renderHistory(h) {
       el("div", {class: "num muted"}, dtf(t.opened_at) + " → " + dtf(t.closed_at) + " · " + t.strategy),
       el("div", {class: "num muted"}, "giriş " + pfmt(t.entry_price) + " · çıkış " + pfmt(t.exit_price) + (t.exit_estimated ? " (tahmini)" : "")),
       t.partial_taken ? el("div", {class: "pos"}, "Yarısı kârla alındı: " + usd(t.partial_realized)) : null,
-      el("div", {class: "muted"}, shortReason(t.reason)))));
+      el("div", {class: "muted"}, shortReason(t.reason)), why(t.note))));
 }
 
 function renderDecisions(ds) {

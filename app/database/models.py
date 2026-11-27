@@ -100,6 +100,7 @@ class Position(Base):
     partial_taken: Mapped[bool | None] = mapped_column(Boolean, default=False)
     partial_realized: Mapped[Decimal | None] = mapped_column(MONEY, default=Decimal("0"))
     partial_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    entry_note: Mapped[str | None] = mapped_column(Text)   # işlem notu: neden alındı
     unrealized_net_pnl: Mapped[Decimal | None] = mapped_column(MONEY)
     risk_usd: Mapped[Decimal | None] = mapped_column(MONEY)
     margin_usd: Mapped[Decimal | None] = mapped_column(MONEY)
