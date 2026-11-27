@@ -122,7 +122,8 @@ async def telegram_test(request: Request) -> dict:
     hint = None
     if not ok:
         e = (n.last_error or "").lower()
-        hint = ("Sohbet bulunamadı: TELEGRAM_CHAT_ID yanlış ya da botunuza henüz Başlat'a basmadınız." if "chat not found" in e
+        hint = ("TELEGRAM_CHAT_ID botun kendi numarası girilmiş: @userinfobot'tan KENDİ Id'nizi alın." if "to the bot" in e
+                else "Sohbet bulunamadı: TELEGRAM_CHAT_ID yanlış ya da botunuza henüz Başlat'a basmadınız." if "chat not found" in e
                 else "Bot anahtarı geçersiz: TELEGRAM_BOT_TOKEN'ı BotFather'dan yeniden kopyalayın." if ("unauthorized" in e or "404" in e)
                 else "Bot engellenmiş: Telegram'da botun engelini kaldırıp Başlat'a basın." if "blocked" in e else None)
     return {"ok": ok, "error": None if ok else n.last_error, "hint": hint}
