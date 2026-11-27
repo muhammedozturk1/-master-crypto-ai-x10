@@ -683,4 +683,4 @@ def test_position_open_stores_note_and_telegram_shows_it(settings):
         assert p.entry_note and "Sıkışma botu" in p.entry_note
         ev = s.query(AuditLog).filter(AuditLog.event == "pozisyon_acildi").one()
         msg = format_event(ev.event, ev.detail)
-    assert "📈 Yeni işlem açıldı" in msg and "📌 Neden alındı: BTC için ALIŞ" in msg and "Sıkışma botu" in msg
+    assert "📈 İşleme girildi: BTC ALIŞ" in msg and "📌 Neden alındı: BTC için ALIŞ" in msg and "Sıkışma botu" in msg

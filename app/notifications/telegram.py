@@ -43,26 +43,85 @@ TITLES = {
 }
 
 
+def _num(x, digits=None) -> str:
+    from decimal import Decimal, InvalidOperation
+    from app.notifications.trade_note import tr_num
+    try:
+        return tr_num(Decimal(str(x)), digits)
+    except (InvalidOperation, ValueError, TypeError):
+        return str(x)
+
+
+def _coin(sym) -> str:
+    sym = str(sym or "")
+    return sym[:-4] if sym.endswith("USDT") else sym
+
+
+def _side(s) -> str:
+    return {"LONG": "ALIŞ (yükseliş)", "SHORT": "SATIŞ (düşüş)", "Buy": "ALIŞ", "Sell": "SATIŞ"}.get(str(s), str(s))
+
+
+def _close_reason(r) -> str:
+    r = str(r or "").lower()
+    if "take" in r or "hedef" in r:
+        return "🎯 Hedefe ulaştı"
+    if "kilit" in r or "lock" in r:
+        return "🔒 Kâr kilidinden çıktı"
+    if "tahmini" in r:
+        return "Borsada stop/kâr kilidiyle kapandı"
+    if "stop" in r:
+        return "🛑 Zarar durdur çalıştı"
+    if "elle" in r or "panel" in r:
+        return "✋ Elle kapatıldı"
+    return str(r) or "—"
+
+
 def format_event(ev: str, d: dict) -> str | None:
     title = TITLES.get(ev)
     if title is None:
         return None
-    lines = ["MASTER CRYPTO AI X10", title]
-    keys = {"symbol": "Coin", "side": "Yön", "qty": "Miktar", "price": "Giriş", "venue": "Ortam", "reason": "Neden",
-            "exit": "Çıkış", "net_pnl": "Net K/Z (USD)", "net": "Net (USD)", "new_stop": "Yeni stop",
-            "wait_sec": "En fazla bekleme (sn)", "tahmini_cikis": "Tahmini çıkış", "problems": "Sorun", "halt": "Durum", "error": "Hata", "trades": "İşlem",
-            "expectancy_usd": "Beklenen (USD)", "equity": "Kasa (USD)", "day_pnl": "Gün K/Z (USD)", "open": "Açık pozisyon"}
+    head = "🤖 MASTER CRYPTO AI X10"
+    if ev == "limit_emir_kondu":
+        return (f"{head}\n📝 Emir kondu: {_coin(d.get('symbol'))} {_side(d.get('side'))}\n"
+                f"Fiyat {_num(d.get('price'))} seviyesine gelirse işleme girilecek "
+                f"(en fazla {int(d.get('wait_sec') or 0) // 60} dk beklenir).")
+    if ev == "limit_emir_dolmadi":
+        return f"{head}\n↩️ {_coin(d.get('symbol'))}: fiyat beklenen seviyeye gelmedi, emir iptal edildi. İşleme girilmedi."
+    if ev == "pozisyon_acildi":
+        lines = [head, f"📈 İşleme girildi: {_coin(d.get('symbol'))} {_side(d.get('side'))}",
+                 f"Giriş fiyatı: {_num(d.get('price'))} · Miktar: {_num(d.get('qty'))}"]
+        if d.get("note"):
+            lines += ["", str(d["note"])[:3000]]
+        return "\n".join(lines)
+    if ev == "pozisyon_kapandi":
+        net = d.get("net_pnl")
+        try:
+            netf = float(net)
+        except (TypeError, ValueError):
+            netf = 0.0
+        mark = "🟢 KÂR" if netf > 0 else "🔴 ZARAR" if netf < 0 else "⚪ BAŞABAŞ"
+        return (f"{head}\n✅ İşlem kapandı: {_coin(d.get('symbol'))}\n{_close_reason(d.get('reason'))}\n"
+                f"Çıkış fiyatı: {_num(d.get('exit'))}\n{mark}: {'+' if netf > 0 else ''}{_num(net, 2)} $")
+    if ev == "kismi_kar_alindi":
+        return (f"{head}\n💰 Kısmi kâr: {_coin(d.get('symbol'))} pozisyonun yarısı {_num(d.get('price'))} "
+                f"fiyatından kapatıldı (+{_num(d.get('net'), 2)} $). Kalan yarı için zarar durdur girişe çekildi.")
+    if ev == "gunluk_rapor":
+        return None  # günlük rapor daily_report_text ile ayrıca gönderilir
+    lines = [head, title]
+    keys = {"symbol": "Coin", "side": "Yön", "reason": "Neden", "halt": "Durum", "error": "Hata",
+            "problems": "Sorun", "tahmini_cikis": "Tahmini çıkış"}
     for k, label in keys.items():
         if k in d and d[k] not in (None, ""):
             v = d[k]
             if isinstance(v, list):
                 v = "; ".join(map(str, v))
+            if k == "symbol":
+                v = _coin(v)
+            if k == "side":
+                v = _side(v)
             lines.append(f"{label}: {v}")
     if "reasons" in d:
         lines.append("Neden: " + "; ".join(map(str, d["reasons"]))[:300])
-    if d.get("note"):
-        lines.append("")
-        lines.append(str(d["note"])[:3000])
     return "\n".join(lines)
 
 
@@ -141,13 +200,21 @@ def _on_audit(mapper, conn, target: AuditLog) -> None:
 def _on_protection(mapper, conn, target: ProtectionChange) -> None:
     if _active is None:
         return
-    from app.engines.profit_lock import STATE_NAMES
-    _active.push(f"MASTER CRYPTO AI X10\n🔐 Kâr koruma yükseltildi\nPozisyon #{target.position_id}\n"
-                 f"Stop: {target.old_stop} → {target.new_stop}\nDurum: {STATE_NAMES.get(target.lock_state, target.lock_state)}")
+    from sqlalchemy import text as sql
+    try:
+        sym = conn.execute(sql("select symbol from positions where id = :i"), {"i": target.position_id}).scalar()
+    except Exception:  # noqa: BLE001
+        sym = None
+    state = {1: "zarar riski kalmadı (başabaş)", 2: "kârın bir kısmı kilitlendi", 3: "kâr takip ediliyor",
+             4: "çıkış hazırlanıyor"}.get(target.lock_state, "koruma güncellendi")
+    _active.push(f"🤖 MASTER CRYPTO AI X10\n🔐 Kâr koruması: {_coin(sym) or '#' + str(target.position_id)}\n"
+                 f"Zarar durdur {_num(target.old_stop)} → {_num(target.new_stop)} seviyesine taşındı; {state}.")
 
 
 def daily_report_text(st, perf_summary: dict) -> str:
-    return (f"MASTER CRYPTO AI X10\n📊 Günlük rapor ({datetime.now(timezone.utc).date()})\n"
-            f"Kasa: {st.equity:.2f} USD (başlangıç {st.starting_capital})\nBugün: {st.day_pnl:+.2f} USD · "
-            f"Hafta: {st.week_pnl:+.2f} USD\nDüşüş: %{st.drawdown_pct:.2f} · Açık pozisyon: {st.open_positions}\n"
-            f"Toplam işlem: {perf_summary.get('trades', 0)} · Net: {perf_summary.get('net_profit', 0)} USD")
+    day = st.day_pnl
+    return (f"🤖 MASTER CRYPTO AI X10\n📊 Günlük rapor — {datetime.now(timezone.utc).strftime('%d.%m.%Y')}\n"
+            f"Kasa: {_num(st.equity, 2)} $ (başlangıç {_num(st.starting_capital, 0)} $)\n"
+            f"Bugün: {'🟢 +' if day > 0 else '🔴 ' if day < 0 else ''}{_num(day, 2)} $ · Bu hafta: {_num(st.week_pnl, 2)} $\n"
+            f"Zirveden düşüş: %{_num(st.drawdown_pct, 2)} · Açık işlem: {st.open_positions}\n"
+            f"Toplam {perf_summary.get('trades', 0)} işlem · net {_num(perf_summary.get('net_profit', 0), 2)} $")
