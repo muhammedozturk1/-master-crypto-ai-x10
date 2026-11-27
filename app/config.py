@@ -171,7 +171,7 @@ class Settings(BaseSettings):
     risk_score_threshold: int = 70
     # Kısmi kâr alma: fiyat 1R kâra ulaşınca pozisyonun yarısı kapatılır, stop başabaşa çekilir,
     # kalan yarı hedefe/kâr kilidine kadar taşınır.
-    partial_tp_enabled: bool = True
+    partial_tp_enabled: bool = False   # 27.11: kapatıldı (backtest neti düşürdü; kazancı kırpıyordu)
     partial_tp_r: float = 1.0
     partial_tp_fraction: float = 0.5
     maker_fee_pct: float = 0.02     # Bybit USDT perpetual maker komisyonu (tek yön, %)
