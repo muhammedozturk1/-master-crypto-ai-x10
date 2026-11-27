@@ -113,3 +113,25 @@ def test_panel_page_and_all_panel_endpoints(client):
     for pth in paths:
         r = client.get(pth)
         assert r.status_code == 200, (pth, r.text[:200])
+
+
+def test_telegram_test_endpoint(client):
+    import httpx
+    from app.notifications.telegram import TelegramNotifier
+    h = {"X-Dashboard-Token": TOKEN}
+    app.state.notifier = None
+    r = client.post("/telegram/test", headers=h).json()
+    assert r["ok"] is False and "kapalı" in r["error"]
+    assert client.post("/telegram/test", headers={"X-Dashboard-Token": "yanlis"}).status_code == 401
+
+    def bad(req):
+        return httpx.Response(400, json={"ok": False, "description": "Bad Request: chat not found"})
+    app.state.notifier = TelegramNotifier("tok", "1", httpx.AsyncClient(transport=httpx.MockTransport(bad)))
+    r = client.post("/telegram/test", headers=h).json()
+    assert r["ok"] is False and "chat not found" in r["error"] and "TELEGRAM_CHAT_ID" in r["hint"]
+    assert client.get("/health", headers=h).json()["telegram"]["failed"] == 1
+
+    app.state.notifier = TelegramNotifier("tok", "1", httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda req: httpx.Response(200, json={"ok": True}))))
+    assert client.post("/telegram/test", headers=h).json() == {"ok": True, "error": None, "hint": None}
+    app.state.notifier = None

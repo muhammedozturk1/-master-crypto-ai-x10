@@ -73,6 +73,10 @@ class TelegramNotifier:
         self.queue: deque[str] = deque(maxlen=200)
         self.sent = 0
         self.failed = 0
+        self.last_error: str | None = None
+
+    def status(self) -> dict:
+        return {"enabled": True, "sent": self.sent, "failed": self.failed, "last_error": self.last_error}
 
     def push(self, text: str) -> None:
         self.queue.append(text)
@@ -82,7 +86,15 @@ class TelegramNotifier:
             r = await self.client.post(f"https://api.telegram.org/bot{self.token}/sendMessage",
                                        json={"chat_id": self.chat_id, "text": text[:4000], "disable_web_page_preview": True})
             ok = r.status_code == 200 and r.json().get("ok")
+            if not ok:
+                try:
+                    desc = r.json().get("description", "")
+                except ValueError:
+                    desc = ""
+                self.last_error = f"HTTP {r.status_code}: {desc}"[:200]
+                log.warning("Telegram mesajı reddedildi: %s", self.last_error)   # token loglanmaz
         except Exception as exc:  # noqa: BLE001
+            self.last_error = exc.__class__.__name__
             log.warning("Telegram gönderilemedi: %s", exc.__class__.__name__)  # token loglanmaz
             ok = False
         self.sent += int(bool(ok))

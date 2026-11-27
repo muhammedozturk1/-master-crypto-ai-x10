@@ -50,6 +50,8 @@ def health(request: Request, session: Session = Depends(get_session), settings: 
         "safe_mode": bool(state and state.safe_mode),
         "execution": getattr(getattr(request.app.state, "execution", None), "venue", None),
         "api_key": getattr(request.app.state, "key_check", None),
+        "telegram": (request.app.state.notifier.status() if getattr(request.app.state, "notifier", None)
+                     else {"enabled": False}),
     }
 
 
@@ -108,6 +110,22 @@ def update_bot(bot_id: str, body: BotUpdate, session: Session = Depends(get_sess
 
 class KillSwitch(BaseModel):
     reason: str = Field(min_length=3, max_length=200)
+
+
+@router.post("/telegram/test", dependencies=[Depends(require_admin)])
+async def telegram_test(request: Request) -> dict:
+    """Telegram'a deneme mesajı gönderir; Telegram'ın hata açıklamasını döndürür (anahtar gösterilmez)."""
+    n = getattr(request.app.state, "notifier", None)
+    if n is None:
+        return {"ok": False, "error": "Telegram kapalı: Render'da TELEGRAM_BOT_TOKEN ve TELEGRAM_CHAT_ID girilmemiş"}
+    ok = await n.send("MASTER CRYPTO AI X10\n✅ Deneme mesajı: Telegram bağlantısı çalışıyor.")
+    hint = None
+    if not ok:
+        e = (n.last_error or "").lower()
+        hint = ("Sohbet bulunamadı: TELEGRAM_CHAT_ID yanlış ya da botunuza henüz Başlat'a basmadınız." if "chat not found" in e
+                else "Bot anahtarı geçersiz: TELEGRAM_BOT_TOKEN'ı BotFather'dan yeniden kopyalayın." if ("unauthorized" in e or "404" in e)
+                else "Bot engellenmiş: Telegram'da botun engelini kaldırıp Başlat'a basın." if "blocked" in e else None)
+    return {"ok": ok, "error": None if ok else n.last_error, "hint": hint}
 
 
 @router.post("/system/kill-switch", dependencies=[Depends(require_admin)])

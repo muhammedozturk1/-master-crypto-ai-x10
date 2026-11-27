@@ -110,6 +110,7 @@ details.why .txt{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var
     <button id="btnView" class="small" type="button">📱 Mobil görünüm</button>
     <button class="webonly go small" data-act="resume" type="button">Yeniden başlat</button>
     <button class="webonly danger small" data-act="kill" type="button">Acil durdur</button>
+    <button id="btnTg" class="small" type="button">✈️ Telegram'ı test et</button>
     <button id="btnLogout" class="small" type="button">Çıkış</button>
   </div>
 </div>
@@ -273,6 +274,12 @@ $("loginForm").addEventListener("submit", async (e) => {
   try { await post("/login", {token: $("tok").value}); $("login").style.display = "none"; $("tok").value = ""; slow(); fast(); }
   catch (err) { text("loginErr", "Anahtar geçersiz"); }
 });
+$("btnTg").onclick = async () => {
+  try {
+    const r = await post("/telegram/test", {});
+    toast(r.ok ? "✅ Deneme mesajı Telegram'a gönderildi" : "❌ Gönderilemedi: " + (r.hint || r.error));
+  } catch (e) { toast("Hata: " + e.message); }
+};
 $("btnLogout").onclick = async () => { await post("/logout", {}); $("login").style.display = "flex"; };
 document.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", async () => {
   try {
