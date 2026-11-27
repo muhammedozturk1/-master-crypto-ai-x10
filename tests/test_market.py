@@ -186,3 +186,13 @@ def test_portfolio_history_endpoint(api):
                                 unrealized_pnl=Decimal(0), peak_equity=Decimal("150")))
     h = c.get("/portfolio/history", params={"hours": 24}).json()
     assert [float(x["equity"]) for x in h] == [200.0, 201.5, 199.2]
+
+
+def test_candles_include_forming_for_chart(api):
+    c, _, _ = api
+    r = c.get("/market/candles/BTCUSDT", params={"timeframe": "15m", "limit": 50, "include_forming": "true"}).json()
+    assert r["closed_candles"] >= 10 and len(r["forming"]) == r["dropped_forming"]
+    if r["forming"]:
+        assert r["forming"][0]["start"] > r["candles"][-1]["start"]
+    plain = c.get("/market/candles/BTCUSDT", params={"timeframe": "15m", "limit": 50}).json()
+    assert plain["forming"] == []

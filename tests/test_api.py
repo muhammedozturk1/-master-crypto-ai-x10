@@ -135,3 +135,10 @@ def test_telegram_test_endpoint(client):
         transport=httpx.MockTransport(lambda req: httpx.Response(200, json={"ok": True}))))
     assert client.post("/telegram/test", headers=h).json() == {"ok": True, "error": None, "hint": None}
     app.state.notifier = None
+
+
+def test_chart_library_served_publicly(client):
+    r = client.get("/static/lwc.js", headers={"X-Dashboard-Token": ""})
+    assert r.status_code == 200 and "Lightweight Charts" in r.text[:400]
+    html = client.get("/").text
+    assert '<script src="/static/lwc.js"></script>' in html and "openTradeChart" in html

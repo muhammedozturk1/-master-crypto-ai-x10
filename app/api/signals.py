@@ -261,6 +261,8 @@ def position_history(limit: int = Query(100, ge=1, le=1000), session: Session = 
             "id": p.id, "symbol": p.symbol, "side": p.side, "strategy": (p.strategy_id or "").split("+")[0],
             "qty": str(p.qty), "entry_price": str(p.entry_price),
             "exit_price": str(p.last_price) if p.last_price is not None else None,
+            "initial_stop": str(p.initial_stop), "final_stop": str(p.current_stop),
+            "take_profit": str(p.take_profit) if p.take_profit is not None else None,
             "exit_estimated": "tahmini" in reason, "reason": reason,
             "partial_taken": bool(p.partial_taken),
             "partial_realized": str(p.partial_realized) if p.partial_realized else None,

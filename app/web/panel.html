@@ -81,6 +81,14 @@ body.m #web{display:none}body.m #mob{display:flex}body.m .tabbar{display:grid}
 body.m .top{padding:12px}body.m .top h1{font-size:16px}body.m .webonly{display:none}
 body:not(.m) .mobonly{display:none}
 
+.tfbar{display:flex;gap:4px;flex-wrap:wrap}.tfbar button{min-height:30px;padding:0 10px;font-size:12px}
+.tfbar button.on{border-color:var(--blueb);background:#14254a;color:#a9c7ff}
+.lwc{position:relative;width:100%}
+.lwc canvas.ov{position:absolute;inset:0;pointer-events:none;z-index:3}
+#tm{position:fixed;inset:0;background:rgba(5,8,12,.82);display:none;align-items:center;justify-content:center;z-index:15;padding:16px}
+#tm .box{background:var(--card);border:1px solid var(--line);border-radius:14px;width:min(1100px,100%);max-height:100%;overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+body.m #tm{padding:0}body.m #tm .box{border-radius:0;height:100%}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--mute)}.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:5px}
 details.why summary{cursor:pointer;color:var(--blue);font-size:12.5px;list-style:none}
 details.why summary::-webkit-details-marker{display:none}
 details.why summary::before{content:"▸ "}details.why[open] summary::before{content:"▾ "}
@@ -98,6 +106,15 @@ details.why .txt{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var
   <button class="go" type="submit">Giriş</button><span id="loginErr" class="neg"></span>
 </form></div>
 <div id="toast" role="status"></div>
+<div id="tm" role="dialog" aria-modal="true" aria-label="İşlem grafiği"><div class="box">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+    <div><b id="tm_title" style="font-size:17px"></b><div class="muted num" id="tm_sub"></div></div>
+    <button id="tm_close" type="button">✕ Kapat</button>
+  </div>
+  <div class="lwc" id="tm_chart" style="height:min(62vh,560px)"></div>
+  <div class="legend"><span><i style="background:rgba(111,211,138,.35)"></i>Hedef bölgesi</span><span><i style="background:rgba(255,138,128,.35)"></i>Zarar durdur bölgesi</span><span>▲▼ Giriş · ● Çıkış</span></div>
+  <div id="tm_note"></div>
+</div></div>
 
 <div class="top">
   <div style="display:flex;flex-direction:column;gap:4px">
@@ -134,9 +151,10 @@ details.why .txt{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var
     <section class="card">
       <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline">
         <h2 id="w_ctitle">Grafik</h2>
-        <span class="muted">1 dk mumlar · son 2 saat · fiyat şeridinden parite seçebilirsiniz</span>
+        <div class="tfbar" data-tfbar></div>
       </div>
-      <div class="chart" id="w_chart" style="height:280px"></div>
+      <div class="lwc" id="w_chart" style="height:340px"></div>
+      <div class="muted" style="margin-top:6px">Fiyat şeridinden coin seçebilirsiniz · canlı fiyat birkaç saniyede bir güncellenir</div>
     </section>
     <section class="card" style="display:flex;flex-direction:column;gap:12px">
       <h2 style="margin:0">Ana robot</h2>
@@ -185,7 +203,7 @@ details.why .txt{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var
       <div class="mcard"><span class="muted">Bugün</span><span class="mbig" id="m_day">—</span><div class="bar"><i id="m_dlbar" style="width:0;background:var(--amber)"></i></div></div>
       <div class="mcard"><span class="muted">Düşüş</span><span class="mbig" id="m_dd">—</span><div class="bar"><i id="m_ddbar" style="width:0"></i></div></div>
     </div>
-    <div class="mcard"><div style="display:flex;justify-content:space-between"><b id="m_ctitle">Grafik</b><span class="muted">1 dk</span></div><div class="chart" id="m_chart" style="height:190px"></div></div>
+    <div class="mcard"><b id="m_ctitle">Grafik</b><div class="tfbar" data-tfbar></div><div class="lwc" id="m_chart" style="height:260px"></div></div>
     <div class="mcard"><b>Ana robot</b><div id="m_dec"></div>
       <div class="gauge"><span class="tick" style="left:50%"></span><span class="tick" style="left:70%"></span><span class="mk" id="m_mk" style="left:0"></span></div></div>
     <div class="mbtns"><button class="go" data-act="resume" type="button">▶ Başlat</button><button class="danger" data-act="kill" type="button">⛔ Acil durdur</button></div>
@@ -214,6 +232,7 @@ details.why .txt{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var
   <button data-go="diger" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>Diğer</button>
 </nav>
 
+<script src="/static/lwc.js"></script>
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
@@ -225,7 +244,7 @@ const cls = (x) => N(x) >= 0 ? "pos" : "neg";
 const hm = (iso) => iso ? new Date(iso).toLocaleTimeString("tr-TR", {hour: "2-digit", minute: "2-digit"}) : "—";
 const dt = (iso) => iso ? new Date(iso).toLocaleString("tr-TR", {weekday: "short", hour: "2-digit", minute: "2-digit"}) : "—";
 const LOCK = {0: "başlangıç", 1: "başabaş", 2: "kâr kilidi", 3: "takip eden", 4: "çıkış", 5: "kapandı", 6: "hata"};
-const S = {prices: {}, chartSym: null, candles: [], seenDec: new Set(), firstDec: true, pos: [], view: null};
+const S = {prices: {}, chartSym: null, bars: [], charts: {}, tf: "15m", seenDec: new Set(), firstDec: true, pos: [], view: null};
 
 function el(tag, attrs = {}, ...kids) {      // tüm metinler textContent: dış veri HTML olarak yorumlanmaz
   const n = document.createElement(tag);
@@ -321,45 +340,162 @@ function renderTicker(list) {
     S.prices[t.symbol] = now;
     const ch = N(t.change_24h_pct);
     return el("button", {class: "tk" + (t.symbol === S.chartSym ? " sel" : ""), type: "button",
-                         onclick: () => { S.chartSym = t.symbol; S.candles = []; loadCandles(); renderTicker(list); }},
+                         onclick: () => { S.chartSym = t.symbol; S.bars = []; loadCandles(); renderTicker(list); }},
       el("span", {class: "s"}, t.symbol + (t.open_position ? " ●" : "")),
       el("span", {class: "p num " + flash}, pfmt(now)),
       el("span", {class: "chg " + (ch >= 0 ? "pos" : "neg")}, (ch >= 0 ? "+" : "−") + fmt(Math.abs(ch)) + "%"));
   }));
 }
 
-/* ---- Grafik: 1 dk mumlar + canlı son fiyat + pozisyon seviyeleri ---- */
+/* ---- Grafikler: TradingView Lightweight Charts (mum, canlı fiyat, işlem kutuları) ---- */
+const TF = [["1m", 60, "1 dk"], ["5m", 300, "5 dk"], ["15m", 900, "15 dk"], ["1h", 3600, "1 sa"], ["4h", 14400, "4 sa"]];
+const TZ = -new Date().getTimezoneOffset() * 60;            // grafik saatleri yerel saatle
+S.tf = (() => { try { return localStorage.getItem("x10tf") || "15m"; } catch (e) { return "15m"; } })();
+const tfSec = (tf) => (TF.find(x => x[0] === tf) || TF[2])[1];
+const toBar = (c) => ({time: Math.floor(Date.parse(c.start) / 1000) + TZ, open: N(c.open), high: N(c.high), low: N(c.low), close: N(c.close)});
+function precisionFor(p) { return p >= 1000 ? 1 : p >= 100 ? 2 : p >= 1 ? 4 : Math.min(8, Math.ceil(-Math.log10(p)) + 3); }
+function lwcChart(box) {
+  const c = LightweightCharts.createChart(box, {autoSize: true,
+    layout: {background: {type: "solid", color: "#0f141b"}, textColor: "#9aa4b2", fontSize: 11},
+    grid: {vertLines: {color: "#1b2129"}, horzLines: {color: "#1b2129"}},
+    rightPriceScale: {borderColor: "#262c36"}, timeScale: {borderColor: "#262c36", timeVisible: true, secondsVisible: false},
+    crosshair: {mode: 0}, localization: {locale: "tr-TR"}});
+  const s = c.addCandlestickSeries({upColor: "#3fb950", downColor: "#f0883e", borderVisible: false,
+                                    wickUpColor: "#3fb950", wickDownColor: "#f0883e"});
+  return {chart: c, series: s, lines: []};
+}
+function applyPrec(ch) {
+  const p = S.bars.length ? S.bars[S.bars.length - 1].close : 1, prec = precisionFor(p);
+  ch.series.applyOptions({priceFormat: {type: "price", precision: prec, minMove: Math.pow(10, -prec)}});
+}
+function renderTfBars() {
+  document.querySelectorAll("[data-tfbar]").forEach(bar => bar.replaceChildren(...TF.map(([tf, , label]) =>
+    el("button", {type: "button", class: tf === S.tf ? "on" : "", onclick: () => {
+      S.tf = tf; try { localStorage.setItem("x10tf", tf); } catch (e) {} renderTfBars(); loadCandles(); }}, label))));
+}
+function mainCharts() {
+  for (const k of ["w", "m"]) {
+    const box = $(k + "_chart");
+    if (!S.charts[k] && box && box.offsetParent && window.LightweightCharts) {
+      S.charts[k] = lwcChart(box);                       // sonradan görünür olan (ör. mobil sekme) grafik
+      if (S.bars.length) { applyPrec(S.charts[k]); S.charts[k].series.setData(S.bars); }
+    }
+  }
+  return Object.values(S.charts);
+}
 async function loadCandles() {
   if (!S.chartSym) return;
-  try { const r = await api("/market/candles/" + S.chartSym + "?timeframe=1m&limit=120"); S.candles = r.candles.map(c => N(c.close)); drawCharts(); }
-  catch (e) {}
+  const sym = S.chartSym, tf = S.tf;
+  try {
+    const r = await api(`/market/candles/${sym}?timeframe=${tf}&limit=300&include_forming=true`);
+    if (sym !== S.chartSym || tf !== S.tf) return;
+    const fresh = S.loadedKey !== sym + tf;
+    S.bars = [...r.candles, ...r.forming].map(toBar);
+    S.loadedKey = sym + tf; S.loadedAt = Date.now();
+    for (const ch of mainCharts()) {
+      applyPrec(ch);
+      ch.series.setData(S.bars);
+      if (fresh) { ch.chart.timeScale().fitContent(); ch.chart.timeScale().scrollToRealTime(); }
+    }
+    drawCharts();
+  } catch (e) {}
 }
-function drawChart(boxId, titleId) {
-  const box = $(boxId); if (!box || !box.offsetParent) return;
+function drawCharts() {                     // canlı fiyatla son mumu güncelle + açık pozisyon çizgileri
+  const charts = mainCharts();
   const live = S.prices[S.chartSym];
-  const pts = S.candles.length ? [...S.candles, live ?? S.candles[S.candles.length - 1]] : [];
-  text(titleId, (S.chartSym || "—") + (live ? " · " + pfmt(live) : ""));
-  if (pts.length < 2) { box.replaceChildren(el("div", {class: "muted", style: "padding:20px"}, "Grafik verisi bekleniyor…")); return; }
+  text("w_ctitle", (S.chartSym || "—") + (live ? " · " + pfmt(live) : ""));
+  text("m_ctitle", (S.chartSym || "—") + (live ? " · " + pfmt(live) : ""));
+  if (!charts.length || !S.bars.length) return;
+  if (live) {
+    const sec = tfSec(S.tf), t = Math.floor((Date.now() / 1000) / sec) * sec + TZ;
+    const last = S.bars[S.bars.length - 1];
+    if (t > last.time) S.bars.push({time: t, open: last.close, high: Math.max(last.close, live), low: Math.min(last.close, live), close: live});
+    else Object.assign(last, {high: Math.max(last.high, live), low: Math.min(last.low, live), close: live});
+    for (const ch of charts) ch.series.update(S.bars[S.bars.length - 1]);
+  }
   const pos = S.pos.find(p => p.symbol === S.chartSym && p.status !== "KAPALI");
-  const lines = pos ? [["Giriş", N(pos.entry_price), "#79a8ff"], ["Stop", N(pos.current_stop), "#ffb27a"], ["Hedef", N(pos.take_profit), "#6fd38a"]].filter(x => x[1]) : [];
-  let lo = Math.min(...pts, ...lines.map(l => l[1])), hi = Math.max(...pts, ...lines.map(l => l[1]));
-  const pad = (hi - lo) * 0.08 || hi * 0.001; lo -= pad; hi += pad;
-  const W = 800, H = 260, y = v => H - (v - lo) / (hi - lo) * H;
-  const d = pts.map((v, i) => (i ? "L" : "M") + (i / (pts.length - 1) * W).toFixed(1) + " " + y(v).toFixed(1)).join("");
-  const up = pts[pts.length - 1] >= pts[0], col = up ? "#6fd38a" : "#ffb27a";
-  const ns = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(ns, "svg"); svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("preserveAspectRatio", "none");
-  svg.setAttribute("role", "img"); svg.setAttribute("aria-label", S.chartSym + " fiyat grafiği");
-  const mk = (t, a) => { const n = document.createElementNS(ns, t); for (const k in a) n.setAttribute(k, a[k]); return n; };
-  [0.25, 0.5, 0.75].forEach(f => svg.append(mk("line", {x1: 0, x2: W, y1: H * f, y2: H * f, stroke: "#21262d", "vector-effect": "non-scaling-stroke"})));
-  lines.forEach(([, v, c]) => svg.append(mk("line", {x1: 0, x2: W, y1: y(v), y2: y(v), stroke: c, "stroke-dasharray": "6 5", "vector-effect": "non-scaling-stroke"})));
-  svg.append(mk("path", {d: d + `L${W} ${H}L0 ${H}Z`, fill: col, "fill-opacity": "0.10"}));
-  svg.append(mk("path", {d, fill: "none", stroke: col, "stroke-width": "2", "vector-effect": "non-scaling-stroke", "stroke-linejoin": "round"}));
-  const labels = lines.map(([n, v, c]) => el("div", {class: "lbl num", style: `top:${(y(v) / H * 100).toFixed(2)}%;color:${c};border-color:${c}`}, n + " " + pfmt(v)));
-  labels.push(el("div", {class: "lbl num", style: `top:${(y(pts[pts.length - 1]) / H * 100).toFixed(2)}%;right:auto;left:6px;color:#e6edf3;border-color:#5a6372`}, pfmt(pts[pts.length - 1])));
-  box.replaceChildren(svg, ...labels);
+  const key = pos ? [pos.id, pos.current_stop, pos.take_profit].join() : "";
+  for (const ch of charts) {
+    if (ch.linesKey === key) continue;
+    ch.lines.forEach(l => ch.series.removePriceLine(l)); ch.lines = []; ch.linesKey = key;
+    if (!pos) continue;
+    for (const [title, v, color] of [["Giriş", pos.entry_price, "#79a8ff"], ["Zarar durdur", pos.current_stop, "#ff8a80"], ["Hedef", pos.take_profit, "#6fd38a"]])
+      if (v) ch.lines.push(ch.series.createPriceLine({price: N(v), color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title}));
+  }
 }
-function drawCharts() { drawChart("w_chart", "w_ctitle"); drawChart("m_chart", "m_ctitle"); }
+addEventListener("load", () => renderTfBars());
+
+/* ---- İşlem grafiği: TradingView Long/Short aracı gibi hedef (yeşil) ve stop (kırmızı) kutuları ---- */
+let TM = null;
+function closeTradeChart() { $("tm").style.display = "none"; if (TM) { TM.chart.remove(); TM = null; } }
+$("tm_close").onclick = closeTradeChart;
+$("tm").addEventListener("click", (e) => { if (e.target === $("tm")) closeTradeChart(); });
+addEventListener("keydown", (e) => { if (e.key === "Escape") closeTradeChart(); });
+async function openTradeChart(t) {
+  const long = t.side === "LONG", opened = Date.parse(t.opened_at) / 1000, closed = t.closed_at ? Date.parse(t.closed_at) / 1000 : Date.now() / 1000;
+  const span = Date.now() / 1000 - opened + 3600;
+  const [tf, sec] = TF.find(([, s]) => s * 950 >= span && (closed - opened) / s <= 300) || TF[TF.length - 1];
+  const limit = Math.min(1000, Math.ceil(span / sec) + 80);
+  const net = N(t.net_pnl);
+  text("tm_title", `${t.symbol} ${long ? "ALIŞ (long)" : "SATIŞ (short)"} · ${net >= 0 ? "+" : "−"}${fmt(Math.abs(net))} $`);
+  $("tm_title").className = cls(net);
+  text("tm_sub", `${new Date(opened * 1000).toLocaleString("tr-TR")} → ${t.closed_at ? new Date(closed * 1000).toLocaleString("tr-TR") : "açık"} · ${TF.find(x => x[0] === tf)[2]} mumlar · giriş ${pfmt(t.entry_price)} · çıkış ${pfmt(t.exit_price)}`);
+  put("tm_note", why(t.note));
+  $("tm").style.display = "flex";
+  if (TM) { TM.chart.remove(); TM = null; }
+  const box = $("tm_chart"); box.replaceChildren(el("div", {class: "muted", style: "padding:20px"}, "Grafik yükleniyor…"));
+  let r;
+  try { r = await api(`/market/candles/${t.symbol}?timeframe=${tf}&limit=${limit}&include_forming=true`); }
+  catch (e) { box.replaceChildren(el("div", {class: "neg", style: "padding:20px"}, "Grafik verisi alınamadı: " + e.message)); return; }
+  box.replaceChildren();
+  const bars = [...r.candles, ...r.forming].map(toBar);
+  const entry = N(t.entry_price), stop = N(t.initial_stop), tp = N(t.take_profit), exit = N(t.exit_price);
+  const prec = precisionFor(entry);
+  TM = lwcChart(box);
+  TM.series.applyOptions({priceFormat: {type: "price", precision: prec, minMove: Math.pow(10, -prec)},
+    autoscaleInfoProvider: (orig) => { const a = orig(); if (!a) return a;
+      a.priceRange.minValue = Math.min(a.priceRange.minValue, stop, tp); a.priceRange.maxValue = Math.max(a.priceRange.maxValue, stop, tp); return a; }});
+  TM.series.setData(bars);
+  const barAt = (ts) => { const b = Math.floor(ts / sec) * sec + TZ; return bars.find(x => x.time >= b)?.time ?? bars[bars.length - 1].time; };
+  const tIn = barAt(opened), tOut = barAt(closed);
+  TM.series.setMarkers([
+    {time: tIn, position: long ? "belowBar" : "aboveBar", color: long ? "#3fb950" : "#f0883e", shape: long ? "arrowUp" : "arrowDown", text: "Giriş " + pfmt(entry)},
+    ...(t.closed_at ? [{time: tOut, position: "inBar", color: net >= 0 ? "#6fd38a" : "#ff8a80", shape: "circle",
+                        text: "Çıkış " + (net >= 0 ? "+" : "−") + fmt(Math.abs(net)) + " $"}] : [])]
+    .sort((a, b) => a.time - b.time));
+  const pct = (v) => ((v - entry) / entry * 100);
+  TM.series.createPriceLine({price: entry, color: "#9aa4b2", lineWidth: 1, lineStyle: 2, title: "Giriş"});
+  TM.series.createPriceLine({price: tp, color: "#6fd38a", lineWidth: 1, lineStyle: 0, title: `Hedef ${pct(tp) >= 0 ? "+" : ""}${fmt(pct(tp))}%`});
+  TM.series.createPriceLine({price: stop, color: "#ff8a80", lineWidth: 1, lineStyle: 0, title: `Stop ${pct(stop) >= 0 ? "+" : ""}${fmt(pct(stop))}%`});
+  // Long/Short kutuları: girişten çıkışa (en az 12 mum genişliğinde)
+  const ov = document.createElement("canvas"); ov.className = "ov"; box.append(ov);
+  const tEnd = Math.max(tOut, tIn + 12 * sec);
+  const draw = () => {
+    if (!TM) return;
+    const w = box.clientWidth, h = box.clientHeight, dpr = devicePixelRatio || 1;
+    ov.width = w * dpr; ov.height = h * dpr; ov.style.width = w + "px"; ov.style.height = h + "px";
+    const g = ov.getContext("2d"); g.scale(dpr, dpr); g.clearRect(0, 0, w, h);
+    const ts = TM.chart.timeScale(), x1 = ts.timeToCoordinate(tIn), x2r = ts.timeToCoordinate(tEnd);
+    const x2 = x2r ?? ts.timeToCoordinate(bars[bars.length - 1].time);
+    if (x1 == null || x2 == null) return;
+    const yE = TM.series.priceToCoordinate(entry), yT = TM.series.priceToCoordinate(tp), yS = TM.series.priceToCoordinate(stop);
+    if (yE == null || yT == null || yS == null) return;
+    const left = Math.min(x1, x2), wid = Math.max(6, Math.abs(x2 - x1));
+    g.fillStyle = "rgba(63,185,80,.22)"; g.fillRect(left, Math.min(yE, yT), wid, Math.abs(yT - yE));
+    g.fillStyle = "rgba(240,80,70,.22)"; g.fillRect(left, Math.min(yE, yS), wid, Math.abs(yS - yE));
+    g.strokeStyle = "rgba(230,237,243,.55)"; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(left, yE); g.lineTo(left + wid, yE); g.stroke();
+    if (t.closed_at && exit) { const yX = TM.series.priceToCoordinate(exit), xX = ts.timeToCoordinate(tOut);
+      if (yX != null && xX != null) { g.setLineDash([]); g.strokeStyle = net >= 0 ? "#6fd38a" : "#ff8a80"; g.lineWidth = 2;
+        g.beginPath(); g.moveTo(x1, yE); g.lineTo(xX, yX); g.stroke(); } }
+  };
+  TM.chart.timeScale().subscribeVisibleLogicalRangeChange(() => requestAnimationFrame(draw));
+  new ResizeObserver(() => requestAnimationFrame(draw)).observe(box);
+  const padL = 40 * sec, padR = 25 * sec;
+  TM.chart.timeScale().setVisibleRange({from: Math.max(bars[0].time, tIn - padL), to: Math.min(bars[bars.length - 1].time, tEnd + padR)});
+  setTimeout(draw, 60); setTimeout(draw, 400);
+  box.addEventListener("pointermove", () => requestAnimationFrame(draw));
+  box.addEventListener("wheel", () => requestAnimationFrame(draw), {passive: true});
+}
 
 function spark(id, vals) {
   const p = $(id)?.querySelector("path"); if (!p) return;
@@ -509,7 +645,8 @@ function renderHistory(h) {
   text("w_histsum", sum); text("m_histsum", sum);
   const dtf = (iso) => iso ? new Date(iso).toLocaleString("tr-TR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
   put("w_hist", h.trades.length ? h.trades.map(t => el("tr", {},
-      el("td", {class: "num"}, dtf(t.closed_at)), el("td", {}, el("b", {}, t.symbol), why(t.note)), el("td", {class: t.side === "LONG" ? "pos" : "neg"}, t.side),
+      el("td", {class: "num"}, dtf(t.closed_at)), el("td", {}, el("b", {}, t.symbol), " ",
+        el("button", {class: "small", type: "button", onclick: () => openTradeChart(t)}, "📊 Grafik"), why(t.note)), el("td", {class: t.side === "LONG" ? "pos" : "neg"}, t.side),
       el("td", {class: "muted"}, t.strategy), el("td", {class: "num"}, t.qty), el("td", {class: "num"}, pfmt(t.entry_price)),
       el("td", {class: "num"}, pfmt(t.exit_price) + (t.exit_estimated ? " ~" : "")), el("td", {class: "num"}, t.partial_taken ? usd(t.partial_realized) : "—"),
       el("td", {class: "num muted"}, fmt(t.fees, 3) + " $"), el("td", {class: "num " + cls(t.net_pnl)}, el("b", {}, usd(t.net_pnl))),
@@ -521,7 +658,8 @@ function renderHistory(h) {
       el("div", {class: "num muted"}, dtf(t.opened_at) + " → " + dtf(t.closed_at) + " · " + t.strategy),
       el("div", {class: "num muted"}, "giriş " + pfmt(t.entry_price) + " · çıkış " + pfmt(t.exit_price) + (t.exit_estimated ? " (tahmini)" : "")),
       t.partial_taken ? el("div", {class: "pos"}, "Yarısı kârla alındı: " + usd(t.partial_realized)) : null,
-      el("div", {class: "muted"}, shortReason(t.reason)), why(t.note))));
+      el("div", {class: "muted"}, shortReason(t.reason)),
+      el("button", {type: "button", onclick: () => openTradeChart(t)}, "📊 İşlemi grafikte gör"), why(t.note))));
 }
 
 function renderDecisions(ds) {
@@ -580,7 +718,8 @@ async function slow() {
 }
 slow().then(() => { fast().then(loadCandles); });
 setInterval(() => { if (!document.hidden && $("login").style.display !== "flex") fast(); }, 3000);
-setInterval(() => { if (!document.hidden && $("login").style.display !== "flex") { slow(); loadCandles(); } }, 10000);
+setInterval(() => { if (!document.hidden && $("login").style.display !== "flex") { slow();
+  if (!S.loadedAt || Date.now() - S.loadedAt > 60000) loadCandles(); } }, 10000);   // mumlar dakikada bir tazelenir
 addEventListener("resize", () => drawCharts());
 </script>
 </body>

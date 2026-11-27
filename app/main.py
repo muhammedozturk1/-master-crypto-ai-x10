@@ -259,7 +259,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="MASTER CRYPTO AI X10", version="0.5.0", lifespan=lifespan)
 
-PUBLIC_PATHS = {"/", "/panel", "/health", "/login", "/logout", "/openapi.json", "/favicon.ico"}
+PUBLIC_PATHS = {"/", "/panel", "/health", "/login", "/logout", "/openapi.json", "/favicon.ico", "/static/lwc.js"}
 
 
 @app.middleware("http")
@@ -300,6 +300,15 @@ async def logout():
     r = JSONResponse({"ok": True})
     r.delete_cookie(TOKEN_COOKIE)
     return r
+
+
+@app.get("/static/lwc.js", include_in_schema=False)
+async def lwc_js():
+    """TradingView Lightweight Charts v4.2.3 (Apache-2.0), kendi sunucumuzdan: dış betik yüklenmez."""
+    from pathlib import Path
+    from fastapi.responses import Response
+    return Response((Path(__file__).parent / "web" / "vendor" / "lwc.js").read_bytes(),
+                    media_type="application/javascript", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/", include_in_schema=False)

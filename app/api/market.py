@@ -37,7 +37,7 @@ def latest_scan(session: Session = Depends(get_session)) -> dict:
 
 @router.get("/candles/{symbol}")
 async def candles(symbol: str, timeframe: str = Query("15m"), limit: int = Query(100, ge=10, le=1000),
-                  market: BybitPublic = Depends(get_market)) -> dict:
+                  include_forming: bool = Query(False), market: BybitPublic = Depends(get_market)) -> dict:
     interval = TIMEFRAME_TO_INTERVAL.get(timeframe)
     if interval is None:
         raise HTTPException(400, f"Geçersiz zaman dilimi. Seçenekler: {', '.join(TIMEFRAME_TO_INTERVAL)}")
@@ -56,6 +56,10 @@ async def candles(symbol: str, timeframe: str = Query("15m"), limit: int = Query
         "closed_candles": len(closed), "dropped_forming": len(raw) - len(closed),
         "data_quality": quality, "problem": problem,
         "candles": [c.to_dict() for c in closed[-limit:]],
+        # Grafik için: henüz kapanmamış (oluşmakta olan) mum; analizde KULLANILMAZ
+        "forming": ([max(raw, key=lambda c: c.start_ms).to_dict()]
+                    if include_forming and raw and (not closed or max(c.start_ms for c in raw) > closed[-1].start_ms)
+                    else []),
     }
 
 
