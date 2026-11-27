@@ -42,7 +42,7 @@ def req(entry="100", stop="98", target="105", cost="0.12", **kw):
     return TradeRequest("BTCUSDT", True, D(entry), D(stop), D(target), D(cost), **kw)
 
 
-RM = RiskManager(RiskLimits())
+RM = RiskManager(RiskLimits(risk_per_trade_pct=D("0.5")))   # şartname örnekleri %0,5 ile hesaplanır
 
 
 def test_fresh_account_and_spec_example(db):
@@ -137,7 +137,7 @@ def test_decision_goes_through_risk_layer(tmp_path):
             sig("BOT06", "liquidity_sweep", conf=75)]
     d = decide(ctx("up"), sigs, MarketInputs(sentiment=20))
     runner._risk_check(d)
-    assert d.outcome == "ONAYLANDI" and D(d.plan["qty"]) > 0 and D(d.plan["risk_usd"]) <= D(1)
+    assert d.outcome == "ONAYLANDI" and D(d.plan["qty"]) > 0 and D(d.plan["risk_usd"]) <= D(2)   # varsayılan %1
     assert d.contributions["risk"]["approved"] is True
     # Haftalık zarar sınırı dolu hesap → red ve sistem durdurulur
     from app.database.models import Decision, SystemState
@@ -167,6 +167,16 @@ def test_portfolio_and_risk_endpoints(tmp_path, monkeypatch):
         p = c.get("/portfolio").json()
         assert p["equity"] == "200.0000" and p["open_positions"] == 0 and p["mode"] == "PAPER"
         r = c.get("/risk").json()
-        assert r["usage"]["risk_budget_usd"] == "1.0000" and r["usage"]["daily_limit"] == "4.00"
+        assert r["usage"]["risk_budget_usd"] == "2.0000" and r["usage"]["daily_limit"] == "4.00"
         assert r["new_trades_blocked_by"] == [] and r["hard_caps"]["max_leverage"] == "3"
     app.dependency_overrides.clear()
+
+
+def test_default_risk_is_one_percent_and_position_cap_still_binds(db):
+    """Kullanıcı kararı (27.11): işlem başı risk %1 = 2 USD. Tek pozisyon teminat sınırı (%25 × 2x
+    kaldıraç = 100 USD büyüklük) dar stoplu işlemlerde riski yine sınırlar."""
+    rm = RiskManager(RiskLimits())
+    wide = rm.evaluate(req(entry="100", stop="97", target="107", cost="0"), acc(db), NOW)
+    assert wide.approved and wide.risk_budget == D(2) and wide.risk_usd == pytest.approx(D(2))
+    tight = rm.evaluate(req(entry="100", stop="99.5", target="101.5", cost="0"), acc(db), NOW)
+    assert tight.approved and tight.notional <= D(100) and tight.risk_usd < D(1)

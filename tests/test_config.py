@@ -8,14 +8,14 @@ from app.config import RiskLimits, Settings, TradingMode, MarketType
 
 def test_defaults_match_spec():
     r = RiskLimits()
-    assert r.risk_budget_usd == Decimal("1")  # 200 × %0,5
+    assert r.risk_budget_usd == Decimal("2")  # 200 × %1 (kullanıcı kararı, 27.11)
     assert r.daily_loss_limit_usd == Decimal("4")
     assert r.max_open_positions == 2
     assert r.leverage == 2
 
 
 @pytest.mark.parametrize("field,value", [
-    ("risk_per_trade_pct", Decimal("1")),
+    ("risk_per_trade_pct", Decimal("1.5")),
     ("daily_loss_pct", Decimal("3")),
     ("max_drawdown_pct", Decimal("15")),
     ("max_open_positions", 3),

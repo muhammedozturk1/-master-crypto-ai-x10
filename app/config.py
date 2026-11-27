@@ -31,7 +31,8 @@ class MarketType(str, Enum):
 
 # --- Kodda kilitli tavanlar: .env bunları aşamaz -------------------------
 HARD_CAPS = {
-    "risk_per_trade_pct": Decimal("0.5"),
+    # Şartname %0,5; kullanıcı kararıyla (27.11, demo testi) %1'e çıkarıldı. Diğer tavanlar aynı.
+    "risk_per_trade_pct": Decimal("1"),
     "daily_loss_pct": Decimal("2"),
     "weekly_loss_pct": Decimal("5"),
     "max_drawdown_pct": Decimal("10"),
@@ -47,7 +48,7 @@ class RiskLimits(BaseModel):
     """Şartname bölüm 10.1 başlangıç risk parametreleri."""
 
     starting_capital_usd: Decimal = Decimal("200")
-    risk_per_trade_pct: Decimal = Decimal("0.5")
+    risk_per_trade_pct: Decimal = Decimal("1")
     daily_loss_pct: Decimal = Decimal("2")
     weekly_loss_pct: Decimal = Decimal("5")
     max_drawdown_pct: Decimal = Decimal("10")

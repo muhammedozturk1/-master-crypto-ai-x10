@@ -123,7 +123,7 @@ kaydedilir.
   olmadan yeniden başlamaz; art arda 3 zarar → 30 dk bekleme; 5 zarar → işlemler durur.
 - **İşlem düzeyi:** en fazla 2 açık pozisyon, aynı paritede ikinci pozisyon yok, net ödül/risk
   en az 1:2.
-- **Pozisyon büyüklüğü:** risk bütçesi = özkaynak × %0,5 (yüksek volatilitede yarısı); miktar =
+- **Pozisyon büyüklüğü:** risk bütçesi = özkaynak × %1 (şartname %0,5; kullanıcı kararıyla 27.11'de %1) (yüksek volatilitede yarısı); miktar =
   bütçe / (stop mesafesi + birim maliyet). Teminat tek pozisyonda özkaynağın %25'i, toplamda
   %50'si; toplam açık risk ve borsa miktar adımı/minimumu ile sınırlanır. Minimumu karşılamak
   için risk limiti aşılmaz, işlem reddedilir.
@@ -226,7 +226,7 @@ Bildirim hatası işlemleri etkilemez.
 
 | Kural | Değer |
 | --- | --- |
-| İşlem başına risk | en fazla %0,5 (200 USD'de 1 USD) |
+| İşlem başına risk | en fazla %1 (200 USD'de 2 USD; şartname %0,5, kullanıcı kararıyla 27.11) |
 | Günlük zarar | en fazla %2 |
 | Haftalık zarar | en fazla %5 |
 | Azami düşüş | en fazla %10 |
