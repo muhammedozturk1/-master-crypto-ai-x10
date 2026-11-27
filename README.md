@@ -220,7 +220,9 @@ Bildirim hatası işlemleri etkilemez.
 
 - Şartnamedeki 10 bot ve risk kuralları.
 - Piyasa: Bybit USDT vadeli (linear), **demo hesap**.
-- Kaldıraç varsayılan 2x, kodda kilitli tavan 3x. Spot seçilirse kaldıraç 1 olmak zorunda.
+- Kaldıraç varsayılan ve tavan 10x (şartname 2x/3x; kullanıcı kararıyla 27.11, demo testi). Risk stopla
+  sınırlıdır; BOT07 stop mesafesi tasfiye mesafesinin yarısını aşan işlemi reddeder. Spot seçilirse
+  kaldıraç 1 olmak zorunda.
 
 ## Kilitli risk tavanları (`app/config.py`)
 
@@ -233,7 +235,7 @@ Bildirim hatası işlemleri etkilemez.
 | Eş zamanlı pozisyon | en fazla 2 |
 | Tek pozisyon / toplam sermaye | %25 / %50 |
 | Asgari ödül/risk | 1:2 |
-| Kaldıraç | 1–3x |
+| Kaldıraç | 1–10x (şartname 3x; kullanıcı kararı 27.11) |
 | Martingale, kontrolsüz DCA | yasak |
 
 `.env` ile bu değerler düşürülebilir ama aşılamaz; aşılırsa uygulama açılmaz.

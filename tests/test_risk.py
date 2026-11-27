@@ -42,7 +42,7 @@ def req(entry="100", stop="98", target="105", cost="0.12", **kw):
     return TradeRequest("BTCUSDT", True, D(entry), D(stop), D(target), D(cost), **kw)
 
 
-RM = RiskManager(RiskLimits(risk_per_trade_pct=D("0.5")))   # şartname örnekleri %0,5 ile hesaplanır
+RM = RiskManager(RiskLimits(risk_per_trade_pct=D("0.5"), leverage=2))   # şartname örnekleri %0,5 ile hesaplanır
 
 
 def test_fresh_account_and_spec_example(db):
@@ -168,15 +168,30 @@ def test_portfolio_and_risk_endpoints(tmp_path, monkeypatch):
         assert p["equity"] == "200.0000" and p["open_positions"] == 0 and p["mode"] == "PAPER"
         r = c.get("/risk").json()
         assert r["usage"]["risk_budget_usd"] == "2.0000" and r["usage"]["daily_limit"] == "4.00"
-        assert r["new_trades_blocked_by"] == [] and r["hard_caps"]["max_leverage"] == "3"
+        assert r["new_trades_blocked_by"] == [] and r["hard_caps"]["max_leverage"] == "10"
     app.dependency_overrides.clear()
 
 
 def test_default_risk_is_one_percent_and_position_cap_still_binds(db):
-    """Kullanıcı kararı (27.11): işlem başı risk %1 = 2 USD. Tek pozisyon teminat sınırı (%25 × 2x
-    kaldıraç = 100 USD büyüklük) dar stoplu işlemlerde riski yine sınırlar."""
-    rm = RiskManager(RiskLimits())
+    """Kullanıcı kararı (27.11): işlem başı risk %1 = 2 USD. Tek pozisyon teminat sınırı (%25 ×
+    kaldıraç) çok dar stoplu işlemlerde riski yine sınırlar."""
+    rm = RiskManager(RiskLimits(leverage=2))
     wide = rm.evaluate(req(entry="100", stop="97", target="107", cost="0"), acc(db), NOW)
     assert wide.approved and wide.risk_budget == D(2) and wide.risk_usd == pytest.approx(D(2))
     tight = rm.evaluate(req(entry="100", stop="99.5", target="101.5", cost="0"), acc(db), NOW)
     assert tight.approved and tight.notional <= D(100) and tight.risk_usd < D(1)
+
+
+def test_liquidation_guard_rejects_stop_too_far_for_leverage(db):
+    rm = RiskManager(RiskLimits())                    # 10x: tasfiye ~%10, stop en fazla %5
+    v = rm.evaluate(req(entry="100", stop="94", target="115", cost="0"), acc(db), NOW)
+    assert not v.approved and any("tasfiye" in r for r in v.reasons)
+    ok = rm.evaluate(req(entry="100", stop="96", target="110", cost="0"), acc(db), NOW)
+    assert ok.approved
+
+
+def test_ten_x_allows_bigger_position_with_same_risk(db):
+    rm = RiskManager(RiskLimits())
+    v = rm.evaluate(req(entry="100", stop="99.5", target="101.5", cost="0"), acc(db), NOW)
+    assert v.approved and v.risk_usd == pytest.approx(D(2)) and v.notional == pytest.approx(D(400))
+    assert v.margin <= D(50)

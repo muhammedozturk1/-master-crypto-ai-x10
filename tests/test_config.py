@@ -11,7 +11,7 @@ def test_defaults_match_spec():
     assert r.risk_budget_usd == Decimal("2")  # 200 × %1 (kullanıcı kararı, 27.11)
     assert r.daily_loss_limit_usd == Decimal("4")
     assert r.max_open_positions == 2
-    assert r.leverage == 2
+    assert r.leverage == 10   # kullanıcı kararı (27.11)
 
 
 @pytest.mark.parametrize("field,value", [
@@ -19,7 +19,7 @@ def test_defaults_match_spec():
     ("daily_loss_pct", Decimal("3")),
     ("max_drawdown_pct", Decimal("15")),
     ("max_open_positions", 3),
-    ("leverage", 5),
+    ("leverage", 11),
     ("min_reward_risk", Decimal("1.5")),
     ("martingale_allowed", True),
 ])

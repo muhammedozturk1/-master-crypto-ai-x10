@@ -39,7 +39,9 @@ HARD_CAPS = {
     "max_open_positions": 2,
     "max_position_capital_pct": Decimal("25"),
     "max_total_capital_pct": Decimal("50"),
-    "max_leverage": 3,
+    # Şartname 3x; kullanıcı kararıyla (27.11, demo testi) 10x. Risk stopla sınırlı kalır; BOT07
+    # stop mesafesi tasfiye mesafesinin yarısını aşan işlemi reddeder.
+    "max_leverage": 10,
 }
 MIN_REWARD_RISK = Decimal("2")
 
@@ -56,7 +58,7 @@ class RiskLimits(BaseModel):
     max_position_capital_pct: Decimal = Decimal("25")
     max_total_capital_pct: Decimal = Decimal("50")
     min_reward_risk: Decimal = Decimal("2")
-    leverage: int = 2
+    leverage: int = 10
     consecutive_loss_cooldown: int = 3
     cooldown_minutes: int = 30
     consecutive_loss_halt: int = 5

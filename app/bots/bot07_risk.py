@@ -117,6 +117,13 @@ class RiskManager:
         if v.net_rr < lim.min_reward_risk:
             reasons.append(f"net ödül/risk {v.net_rr:.2f} < {lim.min_reward_risk}")
 
+        # Tasfiye koruması: stop mesafesi, kaldıraçla tasfiye mesafesinin (~%100/kaldıraç) yarısını
+        # geçemez; böylece pozisyon stoptan önce tasfiye olmaz.
+        stop_pct = abs(req.entry - req.stop) / req.entry * 100
+        liq_pct = Decimal(100) / Decimal(lim.leverage)
+        if stop_pct > liq_pct / 2:
+            reasons.append(f"stop mesafesi %{stop_pct:.2f}, {lim.leverage}x kaldıraçta tasfiye mesafesinin (%{liq_pct:.1f}) yarısını aşıyor")
+
         qty = budget / unit_risk if unit_risk > 0 else ZERO
         # Teminat sınırları: tek pozisyon %25, toplam %50, kullanılabilir bakiye
         lev = Decimal(lim.leverage)
