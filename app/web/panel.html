@@ -149,6 +149,9 @@ body:not(.m) .mobonly{display:none}
     <section class="card"><h2>Risk</h2><div id="w_risk"></div></section>
   </div>
 
+  <section class="card"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px"><h2>İşlem geçmişi</h2><span class="muted num" id="w_histsum"></span></div>
+    <div class="scroll"><table><thead><tr><th>Kapanış</th><th>Parite</th><th>Yön</th><th>Strateji</th><th>Miktar</th><th>Giriş</th><th>Çıkış</th><th>Kısmi kâr</th><th>Komisyon</th><th>Net K/Z</th><th>Neden</th></tr></thead><tbody id="w_hist"></tbody></table></div></section>
+
   <div class="three">
     <section class="card"><h2>Karar günlüğü</h2><div class="log" id="w_log"></div></section>
     <section class="card"><h2>NR7 tarayıcı</h2><div class="log" id="w_nr7"></div></section>
@@ -182,7 +185,9 @@ body:not(.m) .mobonly{display:none}
       <div class="gauge"><span class="tick" style="left:50%"></span><span class="tick" style="left:70%"></span><span class="mk" id="m_mk" style="left:0"></span></div></div>
     <div class="mbtns"><button class="go" data-act="resume" type="button">▶ Başlat</button><button class="danger" data-act="kill" type="button">⛔ Acil durdur</button></div>
   </div>
-  <div class="tab" data-tab="islem"><div id="m_pos" style="display:flex;flex-direction:column;gap:10px"></div><div class="mcard"><b>Risk</b><div id="m_risk"></div></div></div>
+  <div class="tab" data-tab="islem"><div id="m_pos" style="display:flex;flex-direction:column;gap:10px"></div>
+    <div class="mcard"><div style="display:flex;justify-content:space-between;align-items:baseline"><b>İşlem geçmişi</b><span class="muted num" id="m_histsum"></span></div></div>
+    <div id="m_hist" style="display:flex;flex-direction:column;gap:8px"></div><div class="mcard"><b>Risk</b><div id="m_risk"></div></div></div>
   <div class="tab" data-tab="karar"><div class="mcard"><div id="m_dist"></div></div><div id="m_log" style="display:flex;flex-direction:column;gap:8px"></div></div>
   <div class="tab" data-tab="bot"><div id="m_bots" style="display:flex;flex-direction:column;gap:8px"></div></div>
   <div class="tab" data-tab="diger">
@@ -449,7 +454,7 @@ function renderBots(bots, sigs) {
 function renderPositions(ps, orders) {
   S.pos = ps;
   const waiting = (orders || []).filter(o => o.purpose === "GIRIS" && o.status === "BEKLIYOR");
-  const open = ps.filter(p => p.status !== "KAPALI"), recent = ps.filter(p => p.status === "KAPALI").slice(0, 5);
+  const open = ps.filter(p => p.status !== "KAPALI"), recent = [];   // kapananlar "İşlem geçmişi"nde
   const rows = [...open, ...recent].map(p => {
     const isOpen = p.status !== "KAPALI", pnl = isOpen ? p.unrealized_net_pnl : p.realized_net_pnl;
     return el("tr", {class: isOpen ? "" : "muted"},
@@ -476,6 +481,31 @@ function renderPositions(ps, orders) {
         el("b", {}, o.symbol + " " + (o.side === "Buy" ? "LONG" : "SHORT")), el("span", {class: "pill warn"}, el("span", {class: "dot"}), "Limit emir bekliyor")),
         el("div", {class: "num muted"}, "limit " + pfmt(o.price) + " · anlık " + pfmt(S.prices[o.symbol]) + " · miktar " + o.qty))))
     .concat(open.length || waiting.length ? [] : [el("div", {class: "mcard muted"}, "Açık pozisyon yok. Ana robot 70+ puan ve risk onayı bekliyor.")]));
+}
+
+function shortReason(r) {
+  if (!r) return "—";
+  if (r.includes("tahmini")) return "borsada kapandı (stop/kilit; fiyat tahmini)";
+  return r.replace("borsa tarafında ", "").slice(0, 60);
+}
+function renderHistory(h) {
+  const sum = h.count ? h.count + " işlem · " + h.wins + " kâr / " + h.losses + " zarar · toplam " + usd(h.total_net) : "Henüz kapanmış işlem yok";
+  text("w_histsum", sum); text("m_histsum", sum);
+  const dtf = (iso) => iso ? new Date(iso).toLocaleString("tr-TR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
+  put("w_hist", h.trades.length ? h.trades.map(t => el("tr", {},
+      el("td", {class: "num"}, dtf(t.closed_at)), el("td", {}, el("b", {}, t.symbol)), el("td", {class: t.side === "LONG" ? "pos" : "neg"}, t.side),
+      el("td", {class: "muted"}, t.strategy), el("td", {class: "num"}, t.qty), el("td", {class: "num"}, pfmt(t.entry_price)),
+      el("td", {class: "num"}, pfmt(t.exit_price) + (t.exit_estimated ? " ~" : "")), el("td", {class: "num"}, t.partial_taken ? usd(t.partial_realized) : "—"),
+      el("td", {class: "num muted"}, fmt(t.fees, 3) + " $"), el("td", {class: "num " + cls(t.net_pnl)}, el("b", {}, usd(t.net_pnl))),
+      el("td", {class: "muted"}, shortReason(t.reason))))
+    : [el("tr", {}, el("td", {colspan: "11", class: "muted"}, "Henüz kapanmış işlem yok"))]);
+  put("m_hist", h.trades.map(t => el("div", {class: "mcard"},
+      el("div", {style: "display:flex;justify-content:space-between;align-items:center"},
+         el("b", {style: "font-size:16px"}, t.symbol + " " + t.side), el("span", {class: "mbig " + cls(t.net_pnl)}, usd(t.net_pnl))),
+      el("div", {class: "num muted"}, dtf(t.opened_at) + " → " + dtf(t.closed_at) + " · " + t.strategy),
+      el("div", {class: "num muted"}, "giriş " + pfmt(t.entry_price) + " · çıkış " + pfmt(t.exit_price) + (t.exit_estimated ? " (tahmini)" : "")),
+      t.partial_taken ? el("div", {class: "pos"}, "Yarısı kârla alındı: " + usd(t.partial_realized)) : null,
+      el("div", {class: "muted"}, shortReason(t.reason)))));
 }
 
 function renderDecisions(ds) {
@@ -525,10 +555,10 @@ async function fast() {
 }
 async function slow() {
   try {
-    const [h, p, risk, m, bots, pos, dec, nr7, cal, perf, bt, run, hist, sigs, ords] = await Promise.all([
+    const [h, p, risk, m, bots, pos, dec, nr7, cal, perf, bt, run, hist, sigs, ords, phist] = await Promise.all([
       api("/health"), api("/portfolio"), api("/risk"), api("/master"), api("/bots"), api("/positions?limit=30"), api("/decisions?limit=25"),
-      api("/nr7"), api("/calendar"), api("/performance"), api("/backtest"), api("/runner"), api("/portfolio/history?hours=48"), api("/signals?limit=150"), api("/orders?limit=10")]);
-    renderHeader(h, risk); renderMoney(p, risk, hist, cal, run); renderMaster(m); renderBots(bots, sigs); renderPositions(pos, ords);
+      api("/nr7"), api("/calendar"), api("/performance"), api("/backtest"), api("/runner"), api("/portfolio/history?hours=48"), api("/signals?limit=150"), api("/orders?limit=10"), api("/positions/history?limit=100")]);
+    renderHeader(h, risk); renderMoney(p, risk, hist, cal, run); renderMaster(m); renderBots(bots, sigs); renderPositions(pos, ords); renderHistory(phist);
     renderDecisions(dec); renderSide(nr7, cal); renderPerfBt(perf, bt);
   } catch (e) { if (e.message !== "auth") text("sub", "Bağlantı hatası: " + e.message); }
 }

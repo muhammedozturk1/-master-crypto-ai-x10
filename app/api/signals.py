@@ -230,6 +230,38 @@ def positions(status: str | None = None, limit: int = Query(50, ge=1, le=500),
     return out
 
 
+@router.get("/positions/history")
+def position_history(limit: int = Query(100, ge=1, le=1000), session: Session = Depends(get_session)) -> dict:
+    """İşlem geçmişi: kapanmış pozisyonlar, çıkış fiyatı ve nedeni, toplamlar."""
+    from app.database.models import AuditLog, Position
+    rows = list(session.scalars(select(Position).where(Position.status == "KAPALI")
+                                .order_by(Position.closed_at.desc()).limit(limit)))
+    ids = {p.id for p in rows}
+    reasons: dict[int, str] = {}
+    for a in session.scalars(select(AuditLog).where(AuditLog.event == "pozisyon_kapandi")):
+        pid = (a.detail or {}).get("position_id")
+        if pid in ids:
+            reasons[pid] = (a.detail or {}).get("reason", "")
+    trades = []
+    for p in rows:
+        reason = reasons.get(p.id, "")
+        trades.append({
+            "id": p.id, "symbol": p.symbol, "side": p.side, "strategy": (p.strategy_id or "").split("+")[0],
+            "qty": str(p.qty), "entry_price": str(p.entry_price),
+            "exit_price": str(p.last_price) if p.last_price is not None else None,
+            "exit_estimated": "tahmini" in reason, "reason": reason,
+            "partial_taken": bool(p.partial_taken),
+            "partial_realized": str(p.partial_realized) if p.partial_realized else None,
+            "net_pnl": str(p.realized_net_pnl) if p.realized_net_pnl is not None else None,
+            "fees": str((p.entry_fee or 0) + (p.exit_fee or 0)), "venue": p.venue,
+            "opened_at": p.opened_at.isoformat(), "closed_at": p.closed_at.isoformat() if p.closed_at else None,
+        })
+    nets = [Decimal(t["net_pnl"]) for t in trades if t["net_pnl"] is not None]
+    wins = [n for n in nets if n > 0]
+    return {"count": len(nets), "wins": len(wins), "losses": len(nets) - len(wins),
+            "total_net": str(sum(nets, Decimal(0))), "trades": trades}
+
+
 @router.get("/orders")
 def orders(limit: int = Query(50, ge=1, le=500), session: Session = Depends(get_session)) -> list[dict]:
     from app.database.models import Order

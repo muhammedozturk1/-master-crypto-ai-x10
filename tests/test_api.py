@@ -108,7 +108,7 @@ def test_panel_page_and_all_panel_endpoints(client):
     paths = set(re.findall(r'api\("(/[a-z0-9/_?=]+)"\)', html))
     assert {"/health", "/portfolio", "/risk", "/master", "/bots", "/decisions?limit=25", "/nr7", "/calendar",
             "/performance", "/backtest", "/runner", "/market/live", "/portfolio/history?hours=48",
-            "/signals?limit=150", "/positions?limit=30"} <= paths
+            "/signals?limit=150", "/positions?limit=30", "/positions/history?limit=100"} <= paths
     assert 'id="web"' in html and 'id="mob"' in html and "tabbar" in html     # ayrı web ve mobil düzen
     for pth in paths:
         r = client.get(pth)

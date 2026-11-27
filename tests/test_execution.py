@@ -611,3 +611,21 @@ def test_closed_queries_do_not_send_start_time_and_filter_old_rows(settings):
     with dbs.session_scope() as s:
         p = s.query(Position).one()
         assert p.status == "KAPALI" and p.last_price == D("98.5")      # eski (9 adetlik) kayıt sayılmadı
+
+
+def test_position_history_lists_closed_trades_with_reason(settings):
+    from app.api.signals import position_history
+    fake = FakeBybitPrivate(fill_price="100")
+    fake.closed_pnl_empty = True
+    ex = bybit_exec(settings, fake)
+    run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))
+    fake.stop_out("BTCUSDT", "98", with_history=False)
+    import app.engines.position_monitor as pm
+    mon = PositionMonitor(ex)
+    for _ in range(pm.MISSING_BEFORE_ESTIMATE):
+        run(mon.cycle())
+    with dbs.session_scope() as s:
+        h = position_history(100, s)
+    assert h["count"] == 1 and h["losses"] == 1 and D(h["total_net"]) < 0
+    t = h["trades"][0]
+    assert t["symbol"] == "BTCUSDT" and t["exit_estimated"] and D(t["exit_price"]) == D("98") and t["closed_at"]
