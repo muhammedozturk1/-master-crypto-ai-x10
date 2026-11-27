@@ -35,6 +35,11 @@ TITLES = {
     "anahtar_dogrulanamadi": "❗ Bybit API anahtarı doğrulanamadı",
     "scalping_pasif": "⏸ Scalping botu pasife alındı",
     "gunluk_rapor": "📊 Günlük rapor",
+    "limit_emir_kondu": "📝 Limit giriş emri kondu (dolması bekleniyor)",
+    "limit_emir_dolmadi": "↩️ Limit emir dolmadı, iptal edildi",
+    "kismi_kar_alindi": "💰 Kısmi kâr alındı",
+    "kapanis_tahmini": "ℹ️ Kapanış fiyatı tahmini (borsa kaydı yok)",
+    "anahtar_yetkisi_eksik": "❗ Bybit API anahtarı yetkisi uygun değil",
 }
 
 
@@ -44,7 +49,8 @@ def format_event(ev: str, d: dict) -> str | None:
         return None
     lines = ["MASTER CRYPTO AI X10", title]
     keys = {"symbol": "Coin", "side": "Yön", "qty": "Miktar", "price": "Giriş", "venue": "Ortam", "reason": "Neden",
-            "exit": "Çıkış", "net_pnl": "Net K/Z (USD)", "halt": "Durum", "error": "Hata", "trades": "İşlem",
+            "exit": "Çıkış", "net_pnl": "Net K/Z (USD)", "net": "Net (USD)", "new_stop": "Yeni stop",
+            "wait_sec": "En fazla bekleme (sn)", "tahmini_cikis": "Tahmini çıkış", "problems": "Sorun", "halt": "Durum", "error": "Hata", "trades": "İşlem",
             "expectancy_usd": "Beklenen (USD)", "equity": "Kasa (USD)", "day_pnl": "Gün K/Z (USD)", "open": "Açık pozisyon"}
     for k, label in keys.items():
         if k in d and d[k] not in (None, ""):
