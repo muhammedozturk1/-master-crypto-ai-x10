@@ -651,17 +651,26 @@ def _decision_with_reasons():
                            action="SAT", confidence=40, decision_id=1, payload={"reason": "funding yüksek"}))
 
 
-def test_trade_note_explains_why(settings):
+def test_trade_note_explains_why_in_plain_turkish(settings):
     from app.notifications.trade_note import build_note
     _decision_with_reasons()
     with dbs.session_scope() as s:
         note = build_note(s, 1)
-    assert note.startswith("Neden alındı — BTCUSDT LONG (15m)")
-    assert "puanı 78/100" in note and "güçlü yükseliş (ADX 41)" in note
-    assert note.index("BOT10 NR7") < note.index("BOT02 Trend")             # güvene göre sıralı
-    assert "NR7 kırılımı kapanışla doğrulandı" in note and "Ters yönde: BOT06 (40)" in note
-    assert "teknik 17/20" in note and "stop 98 (-2.00%)" in note and "hedef 105 (+5.00%)" in note
-    assert "Risk: 2.00 $" in note and "10x" in note and "on-chain veri yok" in note
+    assert note.startswith("📌 Neden alındı: BTC için ALIŞ (yükseliş beklentisi)")
+    assert "Piyasa güçlü bir yükseliş trendinde." in note
+    assert note.index("Sıkışma botu") < note.index("Trend botu")            # güvene göre sıralı
+    assert "en dar aralığından yukarı kırıldı" in note
+    assert "1 bot ters yönde sinyal verdi" in note and "Robotun güveni: 78/100." in note
+    assert "Zarar durdur 98 (%2,00 aşağıda), hedef 105 (%5,00 yukarıda)" in note
+    assert "Riske edilen: 2,00 $ · pozisyon büyüklüğü 350,00 $ (10x kaldıraç)." in note
+    for jargon in ("ADX", "NR7", "nr7_", "EMA", "inside bar", "UP"):
+        assert jargon not in note
+
+
+def test_tr_num_format():
+    from app.notifications.trade_note import tr_num
+    assert tr_num(D("58049.2")) == "58.049,2" and tr_num(D("0.05821")) == "0,05821"
+    assert tr_num(D("2.5"), 2) == "2,50" and tr_num(D("1234.5"), 2) == "1.234,50"
 
 
 def test_position_open_stores_note_and_telegram_shows_it(settings):
@@ -671,7 +680,7 @@ def test_position_open_stores_note_and_telegram_shows_it(settings):
     run(ex.open_from_decision(1, "BTCUSDT", "LONG", PLAN))
     with dbs.session_scope() as s:
         p = s.query(Position).one()
-        assert p.entry_note and "NR7" in p.entry_note
+        assert p.entry_note and "Sıkışma botu" in p.entry_note
         ev = s.query(AuditLog).filter(AuditLog.event == "pozisyon_acildi").one()
         msg = format_event(ev.event, ev.detail)
-    assert "📈 Yeni işlem açıldı" in msg and "Neden alındı — BTCUSDT LONG" in msg and "BOT10 NR7" in msg
+    assert "📈 Yeni işlem açıldı" in msg and "📌 Neden alındı: BTC için ALIŞ" in msg and "Sıkışma botu" in msg

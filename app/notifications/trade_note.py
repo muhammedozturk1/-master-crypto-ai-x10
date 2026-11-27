@@ -1,7 +1,8 @@
-"""İşlem notu: robotun bir işlemi NEDEN aldığını okunur Türkçe metinle anlatır.
+"""İşlem notu: robotun bir işlemi NEDEN aldığını kısa, sade Türkçe ile anlatır.
 
-Kaynaklar yalnızca kayıtlı verilerdir (karar, puan dağılımı, piyasa rejimi, destekleyen botların
-sinyal gerekçeleri, risk planı); not sonradan uydurulmaz. Telegram bildirimine ve panele gider.
+Kaynaklar yalnızca kayıtlı verilerdir (karar, piyasa durumu, destekleyen botların sinyalleri,
+risk planı); not sonradan uydurulmaz. Teknik terim yerine günlük dil kullanılır.
+Telegram bildirimine ve panele gider.
 """
 
 from __future__ import annotations
@@ -14,15 +15,40 @@ from sqlalchemy.orm import Session
 from app.database.models import Decision, SignalRecord
 
 REGIMES = {
-    "GUCLU_YUKSELIS": "güçlü yükseliş", "ZAYIF_YUKSELIS": "zayıf yükseliş", "GUCLU_DUSUS": "güçlü düşüş",
-    "ZAYIF_DUSUS": "zayıf düşüş", "YATAY": "yatay piyasa", "VOLATILITE_SIKISMASI": "volatilite sıkışması",
-    "YUKSEK_VOLATILITE": "yüksek volatilite", "DUSUK_LIKIDITE": "düşük likidite", "HABER": "haber dönemi",
-    "BELIRSIZ": "belirsiz",
+    "GUCLU_YUKSELIS": "Piyasa güçlü bir yükseliş trendinde.",
+    "ZAYIF_YUKSELIS": "Piyasa hafif yükseliş eğiliminde.",
+    "GUCLU_DUSUS": "Piyasa güçlü bir düşüş trendinde.",
+    "ZAYIF_DUSUS": "Piyasa hafif düşüş eğiliminde.",
+    "YATAY": "Piyasa yatay seyrediyor, belirgin bir yön yok.",
+    "VOLATILITE_SIKISMASI": "Fiyat dar bir alanda sıkışmış; sert bir hareket bekleniyor.",
+    "YUKSEK_VOLATILITE": "Piyasa çok hareketli; risk yarıya indirildi.",
+    "DUSUK_LIKIDITE": "Piyasada işlem az.",
 }
-CAPS = {"teknik": ("teknik", 20), "trend": ("trend", 20), "hacim_likidite": ("hacim", 15),
-        "rejim_uyumu": ("rejim", 15), "haber": ("haber", 10), "akis": ("akış", 10), "performans": ("performans", 10)}
-BOTS = {"BOT01": "Teknik", "BOT02": "Trend", "BOT03": "Scalping", "BOT04": "Arbitraj", "BOT05": "Haber",
-        "BOT06": "Emir akışı", "BOT10": "NR7"}
+BOT_NAMES = {"BOT01": "Teknik analiz botu", "BOT02": "Trend botu", "BOT03": "Kısa vade botu",
+             "BOT05": "Haber botu", "BOT06": "Para akışı botu", "BOT10": "Sıkışma botu"}
+# strateji → (alış için, satış için) sade açıklama
+PLAIN = {
+    "ema_rsi_trend": ("yükseliş trendi güç kazanıyor", "düşüş trendi güç kazanıyor"),
+    "footprint_absorption": ("fiyat yoğun işlem bölgesinin alt kenarından döndü, satıcılar tükendi",
+                             "fiyat yoğun işlem bölgesinin üst kenarından döndü, alıcılar tükendi"),
+    "sr_breakout": ("önemli bir direnç seviyesi yukarı kırıldı", "önemli bir destek seviyesi aşağı kırıldı"),
+    "trend_pullback": ("yükselen trendde kısa bir geri çekilmeden sonra fiyat yeniden yukarı döndü",
+                       "düşen trendde kısa bir tepkiden sonra fiyat yeniden aşağı döndü"),
+    "donchian_breakout": ("fiyat son dönemin en yüksek seviyesini aştı", "fiyat son dönemin en düşük seviyesini kırdı"),
+    "supertrend_momentum": ("trend yukarı döndü ve hareket hızlanıyor", "trend aşağı döndü ve hareket hızlanıyor"),
+    "ema9_21_scalp": ("kısa vadeli ortalamalar yukarı kesişti", "kısa vadeli ortalamalar aşağı kesişti"),
+    "vwap_reclaim": ("fiyat günün ortalama işlem fiyatının üstüne geri çıktı",
+                     "fiyat günün ortalama işlem fiyatının altına geri indi"),
+    "micro_breakout": ("kısa süreli sıkışma yukarı kırıldı", "kısa süreli sıkışma aşağı kırıldı"),
+    "liquidity_sweep": ("fiyat aşağıdaki stopları süpürüp hızla geri döndü",
+                        "fiyat yukarıdaki stopları süpürüp hızla geri döndü"),
+    "accumulation": ("büyük alıcıların sessizce mal topladığı görülüyor", "büyük alıcıların mal topladığı görülüyor"),
+    "distribution": ("büyük satıcıların mal dağıttığı görülüyor", "büyük satıcıların elindekini dağıttığı görülüyor"),
+    "nr7_breakout": ("fiyat son günlerin en dar aralığından yukarı kırıldı",
+                     "fiyat son günlerin en dar aralığından aşağı kırıldı"),
+    "nr7_retest": ("dar aralık kırılımından sonra fiyat geri test edip yukarı yönü doğruladı",
+                   "dar aralık kırılımından sonra fiyat geri test edip aşağı yönü doğruladı"),
+}
 
 
 def _d(x) -> Decimal | None:
@@ -32,10 +58,42 @@ def _d(x) -> Decimal | None:
         return None
 
 
-def _px(x: Decimal | None) -> str:
+def tr_num(x: Decimal | float | None, digits: int | None = None) -> str:
+    """Türkçe sayı biçimi: binlik nokta, ondalık virgül."""
     if x is None:
         return "—"
-    return f"{x:.6g}" if abs(x) < 1000 else f"{x:,.1f}"
+    x = Decimal(str(x))
+    if digits is None:
+        s = f"{x:.6g}" if abs(x) < 1000 else f"{x:,.1f}"
+        if "e" in s:
+            s = f"{x:.8f}".rstrip("0").rstrip(".")
+    else:
+        s = f"{x:,.{digits}f}"
+    return s.replace(",", "§").replace(".", ",").replace("§", ".")
+
+
+def _coin(symbol: str) -> str:
+    return symbol[:-4] if symbol.endswith("USDT") else symbol
+
+
+def _why(sig: SignalRecord, long: bool) -> str:
+    base = sig.strategy_id.split("+")[0]
+    tags = sig.strategy_id.split("+")[1:]
+    plain = PLAIN.get(base)
+    text = plain[0 if long else 1] if plain else ((sig.payload or {}).get("reason") or base)
+    det = (sig.payload or {}).get("details") or {}
+    extra = []
+    vr = det.get("volume_ratio")
+    if isinstance(vr, (int, float)) and vr >= 1.2:
+        extra.append(f"işlem hacmi normalin {tr_num(round(vr, 1))} katı")
+    htf = det.get("htf_trend")
+    if htf in ("UP", "DOWN") and (htf == "UP") == long:
+        extra.append("büyük zaman diliminde de yön aynı")
+    if det.get("absorption") and det.get("exhaustion"):
+        extra.append("hem karşı taraf emildi hem hareket tükendi")
+    if "squeeze" in tags:
+        extra.append("öncesinde fiyat uzun süre sıkışmıştı")
+    return text + ("; " + ", ".join(extra) if extra else "")
 
 
 def build_note(session: Session, decision_id: int) -> str | None:
@@ -45,56 +103,38 @@ def build_note(session: Session, decision_id: int) -> str | None:
     c = d.contributions or {}
     plan = d.plan or {}
     long = d.direction == "LONG"
-    lines = [f"Neden alındı — {d.symbol} {d.direction or ''} ({d.timeframe or '?'})"]
-
-    rej = c.get("rejim") or {}
-    side_score = c.get("AL" if long else "SAT")
-    other = c.get("SAT" if long else "AL")
-    head = f"• Ana robot puanı {d.score}/100"
-    if side_score is not None and other is not None:
-        head += f" ({'alış' if long else 'satış'} {side_score:.0f} – karşı yön {other:.0f})"
-    regime = REGIMES.get(d.market_regime or "", (d.market_regime or "").lower())
-    if regime:
-        head += f"; piyasa: {regime}"
-        if rej.get("adx") is not None:
-            head += f" (ADX {rej['adx']:.0f})"
-    lines.append(head)
+    coin = _coin(d.symbol)
+    lines = [f"📌 Neden alındı: {coin} için {'ALIŞ (yükseliş beklentisi)' if long else 'SATIŞ (düşüş beklentisi)'}"]
+    if d.market_regime in REGIMES:
+        lines.append(REGIMES[d.market_regime])
 
     sigs = list(session.scalars(select(SignalRecord).where(SignalRecord.decision_id == decision_id)))
     want = "AL" if long else "SAT"
-    for s in sorted(sigs, key=lambda x: -x.confidence):
-        if s.action != want:
-            continue
-        reason = (s.payload or {}).get("reason") or ""
-        name = BOTS.get(s.bot_id, s.bot_id)
-        lines.append(f"• {s.bot_id} {name} — {s.strategy_id.split('+')[0]} (güven {s.confidence}): {reason}"[:400])
+    for s in sorted((s for s in sigs if s.action == want), key=lambda x: -x.confidence)[:3]:
+        lines.append(f"• {BOT_NAMES.get(s.bot_id, s.bot_id)}: {_why(s, long)}.")
     against = [s for s in sigs if s.action not in (want, "BEKLE")]
     if against:
-        lines.append("• Ters yönde: " + ", ".join(f"{s.bot_id} ({s.confidence})" for s in against))
-
-    pts = c.get("puanlar") or {}
-    if pts:
-        parts = [f"{CAPS[k][0]} {float(v):.0f}/{CAPS[k][1]}" for k, v in pts.items() if k in CAPS]
-        lines.append("• Puan dağılımı: " + ", ".join(parts))
+        lines.append(f"• {len(against)} bot ters yönde sinyal verdi, ama ağır basmadı.")
+    lines.append(f"Robotun güveni: {d.score}/100.")
 
     entry = _d(plan.get("entry_high") if long else plan.get("entry_low"))
     stop, tp = _d(plan.get("stop_loss")), _d(plan.get("take_profit"))
     if entry and stop and tp:
-        sp = (stop - entry) / entry * 100
-        tpp = (tp - entry) / entry * 100
-        lines.append(f"• Plan: giriş {_px(entry)}, stop {_px(stop)} ({sp:+.2f}%), hedef {_px(tp)} ({tpp:+.2f}%), "
-                     f"net ödül/risk {plan.get('expected_net_rr', '—')}")
+        sp = abs(stop - entry) / entry * 100
+        tpp = abs(tp - entry) / entry * 100
+        rr = _d(plan.get("expected_net_rr"))
+        lines.append(f"Plan: {tr_num(entry)} seviyesinden giriş. Zarar durdur {tr_num(stop)} "
+                     f"(%{tr_num(sp, 2)} {'aşağıda' if long else 'yukarıda'}), hedef {tr_num(tp)} "
+                     f"(%{tr_num(tpp, 2)} {'yukarıda' if long else 'aşağıda'}).")
+        if rr:
+            lines.append(f"Hedefe ulaşırsa kazanç, riske edilen tutarın yaklaşık {tr_num(rr, 1)} katı olur.")
     risk = c.get("risk") or {}
-    r_usd, budget = _d(risk.get("risk_usd") or plan.get("risk_usd")), _d(risk.get("risk_budget"))
+    r_usd = _d(risk.get("risk_usd") or plan.get("risk_usd"))
     notional = _d(risk.get("notional") or plan.get("notional"))
+    lev = risk.get("leverage") or plan.get("leverage")
     if r_usd is not None:
-        txt = f"• Risk: {r_usd:.2f} $"
-        if budget:
-            txt += f" (bütçe {budget:.2f} $)"
+        txt = f"Riske edilen: {tr_num(r_usd, 2)} $"
         if notional:
-            txt += f", pozisyon {notional:.2f} $, {risk.get('leverage') or plan.get('leverage')}x"
-        lines.append(txt)
-    notes = [n for n in c.get("notlar") or [] if n]
-    if notes:
-        lines.append("• Not: " + "; ".join(notes)[:300])
+            txt += f" · pozisyon büyüklüğü {tr_num(notional, 2)} $" + (f" ({lev}x kaldıraç)" if lev else "")
+        lines.append(txt + ".")
     return "\n".join(lines)
