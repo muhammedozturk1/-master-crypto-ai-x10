@@ -64,7 +64,7 @@ def tr_num(x: Decimal | float | None, digits: int | None = None) -> str:
         return "—"
     x = Decimal(str(x))
     if digits is None:
-        s = f"{x:.6g}" if abs(x) < 1000 else f"{x:,.1f}"
+        s = f"{x:.6g}" if abs(x) < 1000 else (f"{x:,.0f}" if x == x.to_integral_value() else f"{x:,.1f}")
         if "e" in s.lower():
             s = f"{x:.8f}".rstrip("0").rstrip(".")
         elif abs(x) < 1000 and "." in s:
